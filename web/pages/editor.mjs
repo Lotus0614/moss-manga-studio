@@ -37,6 +37,16 @@ const STYLE_LABELS = [
 // 格子底色的不透明度：存在浏览器里，所有页面、下次打开都沿用
 const FILL_ALPHA_KEY = 'moss.fillAlpha';
 const DEFAULT_FILL_ALPHA = 0.5;
+// 左侧工作台的收起状态也记在浏览器里
+const WB_COLLAPSED_KEY = 'moss.wbCollapsed';
+
+function readWbCollapsed() {
+  try {
+    return localStorage.getItem(WB_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 function readFillAlpha() {
   try {
@@ -71,7 +81,10 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
   const [fitScale, setFitScale] = useState(0.55);
   const [zoom, setZoom] = useState(1);
   const [showBoxes, setShowBoxes] = useState(true);
-  const [dockCollapsed, setDockCollapsed] = useState(false);
+  const [dockCollapsed, setDockCollapsedState] = useState(readWbCollapsed);
+  // 工具栏「视图」是 hover 展开的小面板：缩放 / 底色 / 网格
+  const [viewOpen, setViewOpen] = useState(false);
+  const viewTimer = useRef(null);
   const [grid, setGrid] = useState(4);
   const [fillAlpha, setFillAlphaState] = useState(readFillAlpha);
   const [changes, setChanges] = useState(null);
@@ -103,6 +116,29 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
       /* 存不了就只在本次会话里生效 */
     }
   }
+
+  function setDockCollapsed(value) {
+    setDockCollapsedState(value);
+    try {
+      localStorage.setItem(WB_COLLAPSED_KEY, value ? '1' : '0');
+    } catch {
+      /* 同上 */
+    }
+  }
+
+  // 「视图」面板：鼠标移到上面就展开，移开稍等再收，免得来回穿缝隙时闪
+  function openView() {
+    if (viewTimer.current) clearTimeout(viewTimer.current);
+    viewTimer.current = null;
+    setViewOpen(true);
+  }
+
+  function scheduleCloseView() {
+    if (viewTimer.current) clearTimeout(viewTimer.current);
+    viewTimer.current = setTimeout(() => setViewOpen(false), 180);
+  }
+
+  useEffect(() => () => viewTimer.current && clearTimeout(viewTimer.current), []);
 
   useEffect(() => {
     let alive = true;
@@ -615,6 +651,37 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
     mutate((cur) => ({ ...cur, items: cur.items.map((it) => (it.id === id ? { ...it, ...patch } : it)) }));
   }
 
+  // ------------------------------------------------ 左侧工作台（提示词 / 历史 / 变更）
+  // 收起后只剩一列竖排页签，点哪个就展开并切过去。
+  const TABS = [
+    ['prompt', '提示词'],
+    ['history', '历史'],
+    ['changes', '变更'],
+  ];
+
+  function tabBadge(key) {
+    if (key === 'prompt') {
+      if (errors.length) return html`<span class="badge">${errors.length}</span>`;
+      if (warns.length) return html`<span class="badge warn">${warns.length}</span>`;
+      return null;
+    }
+    if (key === 'history') return html`<span class="badge warn">${versions.length}</span>`;
+    return null;
+  }
+
+  function openTab(key) {
+    setTab(key);
+    if (key === 'changes') loadChanges();
+    setDockCollapsed(false);
+  }
+
+  const workbenchBody =
+    tab === 'prompt'
+      ? html`<${PromptPanel} compiled=${compiled} warnings=${warnings} />`
+      : tab === 'history'
+        ? html`<${HistoryPanel} versions=${versions} current=${current} onPick=${pickVersion} />`
+        : html`<${ChangesPanel} changes=${changes} onReload=${loadChanges} onAck=${confirmChanges} />`;
+
   return html`<div class="editor">
     <aside class="rail">
       <div class="rail-head">PAGES<div class="spacer"></div>${pages.length}</div>
@@ -633,6 +700,37 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
         <button class="btn sm ghost" onClick=${removePage}>删</button>
       </div>
     </aside>
+
+    ${dockCollapsed
+      ? html`<aside class="wb collapsed">
+          <button class="wb-expand" title="展开工作台" onClick=${() => setDockCollapsed(false)}>›</button>
+          ${TABS.map(
+            ([key, label]) => html`<div
+              class=${cls('wb-vtab', tab === key && 'on')}
+              key=${key}
+              title=${`展开并切到${label}`}
+              onClick=${() => openTab(key)}
+            >
+              <span class="vt">${label}</span>
+              ${tabBadge(key)}
+            </div>`
+          )}
+        </aside>`
+      : html`<aside class="wb">
+          <div class="wb-head">
+            ${TABS.map(
+              ([key, label]) => html`<div class=${cls('tab', tab === key && 'on')} key=${key} onClick=${() => openTab(key)}>
+                ${label}${tabBadge(key)}
+              </div>`
+            )}
+            <div class="spacer"></div>
+            <button class="wb-fold" title="收起工作台" onClick=${() => setDockCollapsed(true)}>‹</button>
+          </div>
+          <div class="wb-body">${workbenchBody}</div>
+          <div class="wb-foot" title=${version ? `${version.id} · seed ${version.seed}` : '还没有生成过'}>
+            ${version ? `${version.id} · seed ${version.seed}` : '还没有生成过'}
+          </div>
+        </aside>`}
 
     <section class="work">
       <div class="work-head">
@@ -653,131 +751,114 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
           ? html`<button class="btn sm inv" title="外部改动了这一页，点这里拉最新版本" onClick=${applyExternal}>外部已更新 · 刷新</button>`
           : null}
         <div class="spacer"></div>
-        <label class="meta" style="display:flex;align-items:center;gap:5px" title="格子底色的不透明度，全站生效">
-          底色
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value=${fillAlpha}
-            style="width:70px"
-            onInput=${(e) => setFillAlpha(Number(e.currentTarget.value))}
-          />
-        </label>
-        <label class="meta" style="display:flex;align-items:center;gap:4px">网格
-          <select class="select" style="width:56px;padding:1px 14px 1px 4px;font-size:11px" value=${grid} onChange=${(e) => setGrid(Number(e.currentTarget.value))}>
-            ${[1, 2, 4, 8, 16].map((n) => html`<option value=${n}>${n}px</option>`)}
-          </select>
-        </label>
-        <button class=${cls('btn ghost', !showBoxes && 'inv')} onClick=${() => setShowBoxes((v) => !v)}>${showBoxes ? '隐藏框' : '显示框'}</button>
-        <button class="btn ghost" onClick=${undo} title="Ctrl+Z">撤销</button>
-        <button class="btn ghost" onClick=${() => setShowExport(true)}>导出</button>
-        ${canEdit
-          ? html`<button
-              class="btn"
-              disabled=${generating || !editBase}
-              title=${editBase ? `修 v${String(editBase.id).replace(/^v/, '')} 这一版（弹出涂鸦框选）` : '这一页还没有渲染图'}
-              onClick=${openEdit}
-            >
-              ${editing ? `修图中 ${gen?.progress || 0}%` : '修图'}
-            </button>`
-          : null}
-        <button class="btn inv" disabled=${errors.length > 0 || generating} onClick=${generate}>
-          ${generating && !editing ? `生成中 ${gen?.progress || 0}%` : '生成'}
-        </button>
-      </div>
-
-      <div
-        class="stage"
-        ref=${stageRef}
-        onWheel=${(e) => {
-          if (!e.ctrlKey && !e.metaKey) return;
-          e.preventDefault();
-          setZoom((z) => Math.min(3, Math.max(0.5, Number((z - Math.sign(e.deltaY) * 0.1).toFixed(2)))));
-        }}
-        onPointerDown=${(e) => {
-          if (e.target !== e.currentTarget) return;
-          const el = e.currentTarget;
-          const start = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop };
-          const move = (ev) => {
-            el.scrollLeft = start.left - (ev.clientX - start.x);
-            el.scrollTop = start.top - (ev.clientY - start.y);
-          };
-          const up = () => {
-            window.removeEventListener('pointermove', move);
-            window.removeEventListener('pointerup', up);
-          };
-          window.addEventListener('pointermove', move);
-          window.addEventListener('pointerup', up);
-        }}
-      >
-        <${Canvas}
-          page=${page}
-          image=${image}
-          fillAlpha=${fillAlpha}
-          showBoxes=${showBoxes}
-          grid=${grid}
-          scale=${scale}
-          selection=${selection}
-          characters=${characters}
-          onSelect=${select}
-          onBegin=${snapshot}
-          onChange=${updateBbox}
-          onCommit=${saveNow}
-        />
-      </div>
-
-      <div class="canvas-ctrl bottom" style=${`bottom:${dockCollapsed ? 46 : 284}px`}>
-        ${TYPES.map(
-          (t) => html`<button class="btn" onClick=${() => addItem(t.key)}>
-            <svg class="plus" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M5 1v8M1 5h8" /></svg>
-            ${t.label}
-          </button>`
-        )}
-      </div>
-
-      <div class="canvas-hint" style=${`bottom:${dockCollapsed ? 46 : 284}px`}>
-        <span><span class="k">Ctrl</span>滚轮 缩放</span>
-        <span><span class="k">Shift</span>点击 多选</span>
-        <span><span class="k">Alt</span>点击 穿透</span>
-        <span><span class="k">Ctrl</span><span class="k">Z</span>撤销</span>
-        <span><span class="k">Del</span>删除</span>
-      </div>
-      <div class="canvas-ctrl top">
-        <input type="range" min="0.5" max="3" step="0.05" value=${zoom} title="缩放" style="width:90px" onInput=${(e) => setZoom(Number(e.currentTarget.value))} />
-        <button class="icon-btn" title="适应画布" onClick=${() => setZoom(1)}>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6">
-            <path d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9" />
-          </svg>
-        </button>
-        <button class=${cls('icon-btn', !showBoxes && 'on')} title="显示 / 隐藏框" onClick=${() => setShowBoxes((v) => !v)}>${showBoxes ? '▣' : '□'}</button>
-      </div>
-
-      <div class=${cls('dock', dockCollapsed && 'collapsed')}>
-        <div class="dock-head">
-          <div class=${cls('tab', tab === 'prompt' && 'on')} onClick=${() => setTab('prompt')}>
-            提示词${errors.length
-              ? html`<span class="badge">${errors.length}</span>`
-              : warns.length
-                ? html`<span class="badge warn">${warns.length}</span>`
-                : null}
-          </div>
-          <div class=${cls('tab', tab === 'history' && 'on')} onClick=${() => setTab('history')}>
-            历史<span class="badge warn">${versions.length}</span>
-          </div>
-          <div class=${cls('tab', tab === 'changes' && 'on')} onClick=${() => { setTab('changes'); loadChanges(); }}>变更</div>
-          <div class="spacer"></div>
-          <button class="btn sm ghost" onClick=${() => setDockCollapsed((v) => !v)}>${dockCollapsed ? '展开' : '收起'}</button>
-          <div class="spacer"></div>
-          <span class="meta">${version ? `${version.id} · seed ${version.seed}` : '还没有生成过'}</span>
+        <div class="head-group actions">
+          <button class="btn ghost" onClick=${undo} title="Ctrl+Z">撤销</button>
+          <button class="btn ghost" onClick=${() => setShowExport(true)}>导出</button>
+          ${canEdit
+            ? html`<button
+                class="btn"
+                disabled=${generating || !editBase}
+                title=${editBase ? `修 v${String(editBase.id).replace(/^v/, '')} 这一版（弹出涂鸦框选）` : '这一页还没有渲染图'}
+                onClick=${openEdit}
+              >
+                ${editing ? `修图中 ${gen?.progress || 0}%` : '修图'}
+              </button>`
+            : null}
+          <button class="btn inv" disabled=${errors.length > 0 || generating} onClick=${generate}>
+            ${generating && !editing ? `生成中 ${gen?.progress || 0}%` : '生成'}
+          </button>
         </div>
-        <div class="dock-body">
-          ${tab === 'prompt'
-            ? html`<${PromptPanel} compiled=${compiled} warnings=${warnings} />`
-            : tab === 'history'
-              ? html`<${HistoryPanel} versions=${versions} current=${current} onPick=${pickVersion} />`
-              : html`<${ChangesPanel} changes=${changes} onReload=${loadChanges} onAck=${confirmChanges} />`}
+      </div>
+
+      <div class="stage-wrap">
+        <div
+          class="stage"
+          ref=${stageRef}
+          onWheel=${(e) => {
+            if (!e.ctrlKey && !e.metaKey) return;
+            e.preventDefault();
+            setZoom((z) => Math.min(3, Math.max(0.5, Number((z - Math.sign(e.deltaY) * 0.1).toFixed(2)))));
+          }}
+          onPointerDown=${(e) => {
+            if (e.target !== e.currentTarget) return;
+            const el = e.currentTarget;
+            const start = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop };
+            const move = (ev) => {
+              el.scrollLeft = start.left - (ev.clientX - start.x);
+              el.scrollTop = start.top - (ev.clientY - start.y);
+            };
+            const up = () => {
+              window.removeEventListener('pointermove', move);
+              window.removeEventListener('pointerup', up);
+            };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', up);
+          }}
+        >
+          <${Canvas}
+            page=${page}
+            image=${image}
+            fillAlpha=${fillAlpha}
+            showBoxes=${showBoxes}
+            grid=${grid}
+            scale=${scale}
+            selection=${selection}
+            characters=${characters}
+            onSelect=${select}
+            onBegin=${snapshot}
+            onChange=${updateBbox}
+            onCommit=${saveNow}
+          />
+        </div>
+
+        <div class="canvas-tools">
+          <button
+            class=${cls('canvas-toggle', !showBoxes && 'off')}
+            title="画布上的格子框、序号和标签要不要显示"
+            onClick=${() => setShowBoxes((v) => !v)}
+          >${showBoxes ? '隐藏布局信息' : '展示布局信息'}</button>
+          <span class="tools-sep"></span>
+          <div class="view-menu" onPointerEnter=${openView} onPointerLeave=${scheduleCloseView}>
+            <span class="view-trigger">视图<span class="caret">▾</span></span>
+            ${viewOpen
+              ? html`<div class="head-pop">
+                  <label class="pop-row">
+                    <span>缩放</span>
+                    <input type="range" min="0.5" max="3" step="0.05" value=${zoom} onInput=${(e) => setZoom(Number(e.currentTarget.value))} />
+                    <span class="mono small">${Math.round(zoom * 100)}%</span>
+                    <button class="btn sm ghost" onClick=${() => setZoom(1)} title="适应画布">适应</button>
+                  </label>
+                  <label class="pop-row">
+                    <span>底色</span>
+                    <input type="range" min="0" max="1" step="0.05" value=${fillAlpha} onInput=${(e) => setFillAlpha(Number(e.currentTarget.value))} />
+                    <span class="mono small">${Math.round(fillAlpha * 100)}%</span>
+                  </label>
+                  <label class="pop-row">
+                    <span>网格</span>
+                    <select class="select" style="width:76px;padding:2px 18px 2px 6px;font-size:11px" value=${grid} onChange=${(e) => setGrid(Number(e.currentTarget.value))}>
+                      ${[1, 2, 4, 8, 16].map((n) => html`<option value=${n}>${n}px</option>`)}
+                    </select>
+                  </label>
+                </div>`
+              : null}
+          </div>
+        </div>
+
+        <div class="canvas-ctrl bottom">
+          ${TYPES.map(
+            (t) => html`<button class="btn" onClick=${() => addItem(t.key)}>
+              <svg class="plus" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M5 1v8M1 5h8" /></svg>
+              ${t.label}
+            </button>`
+          )}
+        </div>
+
+        <div class="canvas-hint">
+          <span><span class="k">Ctrl</span>滚轮 缩放</span>
+          <span><span class="k">Shift</span>点击 多选</span>
+          <span><span class="k">Alt</span>点击 穿透</span>
+          <span><span class="k">Ctrl</span><span class="k">Z</span>撤销</span>
+          <span><span class="k">Del</span>删除</span>
         </div>
       </div>
     </section>

@@ -306,6 +306,8 @@ const styleOf = (page) => pick(STYLES, page.style) || pick(STYLES, 'mono');
 // ---------------------------------------------------------------- 页面字段
 
 export const PAGE = [
+    // scene 是整页的自由文本，会拼进 summary；
+    // note 只给人看，不进提示词——和 item 上的 note 一个意思。
     {
         key: 'style',
         type: 'enum',
@@ -314,17 +316,23 @@ export const PAGE = [
         default: 'mono',
     },
     { key: 'vertical', type: 'bool', label: '全局竖排', default: true },
-    { key: 'scene', type: 'text', label: '场景' },
-    { key: 'note', type: 'text', label: '补充说明' },
+    { key: 'scene', type: 'longtext', label: '场景' },
+    {
+        key: 'note',
+        type: 'longtext',
+        label: '备注（中文，整页写给人看的说明；不进提示词）',
+    },
     {
         key: 'summaryMeta',
         type: 'tags',
         label: 'summary.meta（留空 = 用画风自带的）',
+        advanced: true,
     },
     {
         key: 'summaryCaption',
         type: 'longtext',
         label: 'summary.caption（填了就整段替换，包括角色表；留空才自动拼）',
+        advanced: true,
     },
 ];
 
@@ -335,6 +343,7 @@ export const PAGE = [
  *   note     备注，中文，只给人看，不进提示词
  *   caption  整段覆盖：填了就用它当产物 caption，自动拼的那套全部让位
  *   tags / palette  原样透传
+ * 后三个标了 advanced：右栏默认收在「高级选项」里，不占版面。
  */
 const BASE_FIELDS = [
     {
@@ -345,10 +354,11 @@ const BASE_FIELDS = [
     {
         key: 'caption',
         type: 'longtext',
-        label: '整段覆盖（留空 = 自动拼；填了就用这段，其他字段不再进提示词）',
+        label: 'caption（添加后会覆盖所有的普通选项！）',
+        advanced: true,
     },
-    { key: 'tags', type: 'tags', label: 'tags' },
-    { key: 'palette', type: 'palette', label: 'palette' },
+    { key: 'tags', type: 'tags', label: 'tags', advanced: true },
+    { key: 'palette', type: 'palette', label: 'palette', advanced: true },
 ];
 
 export const TYPES = [
@@ -532,8 +542,6 @@ export function buildSummary({ page, items, resolveCharacter }) {
     }
 
     if (page.scene) parts.push(page.scene);
-
-    if (page.note) parts.push(page.note);
 
     // 角色表：本页出现的角色，外貌只在这里写一次（手写 summary 时不追加）
     const cast = [];

@@ -76,7 +76,7 @@ node manga.mjs character list
     "style": "mono",       // mono | color | sketch
     "vertical": true,      // 全局竖排；单条 bubble 可用自己的 vertical 覆盖
     "scene": "",           // 整页场景与版式，写法见 TECHNIQUES「页面提示词的结构」
-    "note": "",            // 整页补充说明，进 summary（item 的 note 不进）
+    "note": "",            // 整页备注，只给人看，不进 summary（和 item 的 note 一个意思）
     "summaryMeta": [],     // summary.meta，留空 = 用画风自带的
     "summaryCaption": "",  // ⚠️ 整段覆盖，填了格数/文字锁/角色表全部失效。留空
     "items": [],
@@ -89,8 +89,8 @@ node manga.mjs character list
 | --- | --- | --- |
 | `style` | enum | `mono` 黑白网点、`color` 彩色、`sketch` 线稿。整页总基调，写在 summary 开头 |
 | `vertical` | bool | 全局文字竖排，默认 `true` |
-| `scene` | text | 整页场景 + 版式。**这是剧情和构图唯一的入口**，格式见 TECHNIQUES |
-| `note` | text | 整页补充说明，会追加进 summary；日常留空 |
+| `scene` | longtext | 整页场景 + 版式。**这是剧情和构图唯一的入口**，格式见 TECHNIQUES |
+| `note` | longtext | 整页备注，**只给人看，不进提示词**（和 item 的 note 一样） |
 | `summaryMeta` | tags | `summary.meta`，留空 = 用画风自带的 `meta` |
 | `summaryCaption` | longtext | **整段覆盖**。填了它，`scene`、格数、文字锁、角色表全都不进提示词。**保持空** |
 
@@ -385,6 +385,9 @@ export const CAMERAS = [
 - `default`：新建 item 时的初值，必须出现在 `options` 里
 - `required`：右栏表单标星
 - `canvas: true`：这一项的值会出现在画布左上角的标签里
+- `advanced: true`：右栏默认收进「高级选项」折叠块，只显示一行摘要；
+  这一项本来就有值时会自动展开，收起时摘要上会写「已填 n」。
+  `summary.meta` / `summary.caption` / `caption` / `tags` / `palette` 就是这么收起来的
 
 ### 14.3 类型
 
@@ -411,7 +414,7 @@ export const CAMERAS = [
 `items` 已经是编译后的 Moss item，返回 `{ meta, canvas, caption }`。`caption` 的拼装顺序：
 
 1. **前半段**：填了 `page.summaryCaption` 就整段用它；没填就用自动骨架
-   （画风 → 格数 → 文字锁 → `page.scene` → `page.note`）
+   （画风 → 格数 → 文字锁 → `page.scene`；`page.note` 是备注，不进这里）
 2. **后半段**：`<|character_list|>` 角色表，从本页 character 项按 `ref` 去重自动生成。
    手写 `summaryCaption` 时**整段覆盖，连角色表也不追加**
 

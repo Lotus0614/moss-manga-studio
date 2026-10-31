@@ -38,7 +38,9 @@ export function decompile(input, size = DEFAULT_SIZE) {
   const dims = Array.isArray(size) ? size : [size.width, size.height];
   const pageSizeValue = { width: dims[0] || DEFAULT_SIZE[0], height: dims[1] || DEFAULT_SIZE[1] };
   const page = createPage({ size: [pageSizeValue.width, pageSizeValue.height] });
-  page.note = doc.summary?.caption || '';
+  // 原产物里的整段 summary 走「整段覆盖」，重新编译时才不会被自动骨架改写；
+  // page.note 只是给人看的备注，不进提示词，所以这里放一句导入提示。
+  page.summaryCaption = doc.summary?.caption || '';
 
   page.items = (doc.items || []).map((item) => {
     const bbox = fromMoss(item.bbox, pageSizeValue);
@@ -65,7 +67,7 @@ export function decompile(input, size = DEFAULT_SIZE) {
     });
   });
 
-  page.note = `${page.note}\n（由 Moss JSON 导入，形状与气泡类型为自动推断，需要手动校正。）`.trim();
+  page.note = '由 Moss JSON 导入，形状与气泡类型为自动推断，需要手动校正。';
   return normalizePage(page);
 }
 

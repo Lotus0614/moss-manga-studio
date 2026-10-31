@@ -1,48 +1,23 @@
 // 右栏：页面属性。字段来自 config/manga.mjs 的 PAGE，加字段不用改这里。
 // 「本页角色」勾选直接增删 character 项——一页有谁是单一真相，不再存第二套列表。
+// 标了 advanced 的字段（summary.meta / summary.caption）收在「高级选项」里。
+// 控件和格子表单共用 item-form 的 Field：tags / palette 这类才不会被当成文本框。
 
 import { html, toast } from '../lib.mjs';
-import { PAGE, optionsOf, itemType } from '../../config/manga.mjs';
+import { PAGE, itemType } from '../../config/manga.mjs';
 import { createItem } from '../../core/manga-doc.mjs';
-
-function Field({ field, value, onChange }) {
-  if (field.type === 'enum') {
-    return html`<div class="field" key=${field.key}>
-      <label>${field.label}</label>
-      <select
-        class="select"
-        value=${value ?? field.default ?? ''}
-        onChange=${(e) => onChange(e.currentTarget.value === '' ? undefined : e.currentTarget.value)}
-      >
-        ${optionsOf(field).map((option) => html`<option value=${option.value}>${option.label}</option>`)}
-        <option value="">✕ 清空</option>
-      </select>
-    </div>`;
-  }
-
-  if (field.type === 'bool') {
-    return html`<div class="field" key=${field.key}>
-      <label>${field.label}</label>
-      <label class="row" style="gap:6px;align-items:center">
-        <input type="checkbox" checked=${value !== false} onChange=${(e) => onChange(e.currentTarget.checked)} />
-        <span class="hint">${value === false ? '关闭' : '开启'}</span>
-      </label>
-    </div>`;
-  }
-
-  return html`<div class="field" key=${field.key}>
-    <label>${field.label}</label>
-    <textarea
-      class="textarea"
-      style="min-height:44px"
-      value=${value ?? ''}
-      onInput=${(e) => onChange(e.currentTarget.value)}
-    ></textarea>
-  </div>`;
-}
+import { Field } from './item-form.mjs';
+import AdvancedBox, { splitFields } from './advanced.mjs';
 
 export default function PagePanel({ page, mutate, setSelection, characters = [] }) {
   const countOf = (id) => page.items.filter((it) => it.type === 'character' && it.ref === id).length;
+  const [basicFields, advancedFields] = splitFields(PAGE);
+  const renderField = (field) => html`<${Field}
+    key=${field.key}
+    field=${field}
+    value=${page[field.key]}
+    onChange=${(v) => mutate({ [field.key]: v })}
+  />`;
 
   function toggleCharacter(id, on) {
     const before = countOf(id);
@@ -66,14 +41,13 @@ export default function PagePanel({ page, mutate, setSelection, characters = [] 
   }
 
   return html`<div class="col">
-    ${PAGE.map(
-      (field) => html`<${Field}
-        key=${field.key}
-        field=${field}
-        value=${page[field.key]}
-        onChange=${(v) => mutate({ [field.key]: v })}
-      />`
-    )}
+    ${basicFields.map(renderField)}
+
+    ${advancedFields.length
+      ? html`<${AdvancedBox} key=${page.id} fields=${advancedFields} source=${page}>
+          ${advancedFields.map(renderField)}
+        </${AdvancedBox}>`
+      : null}
 
     <div class="divider"></div>
     <span class="label">本页角色</span>
@@ -106,7 +80,5 @@ export default function PagePanel({ page, mutate, setSelection, characters = [] 
           )
         : html`<span class="hint">还没有内容，用画布右下角的按钮加一个。</span>`}
     </div>
-    <div class="divider"></div>
-    <div class="hint">Alt + 点击：从上往下穿透，选中被压住的格子。Shift + 点击：多选，可整体拖动。</div>
   </div>`;
 }

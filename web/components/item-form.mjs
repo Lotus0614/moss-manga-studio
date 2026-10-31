@@ -1,12 +1,14 @@
 // 元素属性表单：完全由 config/manga.mjs 的字段声明生成，代码里不出现任何具体字段名。
-// 加一个新类型/新字段，这里自动多出对应控件。
+// 加一个新类型/新字段，这里自动多出对应控件。标了 advanced 的收进「高级选项」。
 
 import { html, cls } from '../lib.mjs';
 import { fieldsOf, itemType, optionsOf } from '../../config/manga.mjs';
+import AdvancedBox, { splitFields } from './advanced.mjs';
 
 const TYPE_LABEL = (key) => itemType(key)?.label || key;
 
-function Field({ field, value, onChange, characters }) {
+/** 一个字段的控件：页面属性和格子属性共用这一份，type 决定长相 */
+export function Field({ field, value, onChange, characters }) {
   const label = html`<label>${field.label}${field.required ? html`<span class="req">*</span>` : null}</label>`;
 
   if (field.type === 'characterRef') {
@@ -105,9 +107,16 @@ function Field({ field, value, onChange, characters }) {
   </div>`;
 }
 
-/** 单个元素：字段由注册表决定，全部展示（右栏不做可见性过滤） */
+/** 单个元素：字段由注册表决定，全部展示（右栏不做可见性过滤），高级字段折叠 */
 export default function ItemForm({ item, patchItem, removeItem, onBack, onCopy, characters }) {
-  const fields = fieldsOf(item.type);
+  const [basicFields, advancedFields] = splitFields(fieldsOf(item.type));
+  const renderField = (field) => html`<${Field}
+    key=${field.key}
+    field=${field}
+    value=${item[field.key]}
+    characters=${characters}
+    onChange=${(v) => patchItem(item.id, { [field.key]: v })}
+  />`;
 
   return html`<div class="col">
     <div class="row">
@@ -137,16 +146,12 @@ export default function ItemForm({ item, patchItem, removeItem, onBack, onCopy, 
       </div>
     </div>
 
+    ${basicFields.map(renderField)}
 
-
-    ${fields.map(
-      (field) => html`<${Field}
-        key=${field.key}
-        field=${field}
-        value=${item[field.key]}
-        characters=${characters}
-        onChange=${(v) => patchItem(item.id, { [field.key]: v })}
-      />`
-    )}
+    ${advancedFields.length
+      ? html`<${AdvancedBox} key=${item.id} fields=${advancedFields} source=${item}>
+          ${advancedFields.map(renderField)}
+        </${AdvancedBox}>`
+      : null}
   </div>`;
 }

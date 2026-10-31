@@ -1,10 +1,11 @@
-// 底部工作台：提示词 / 历史 / 变更 三个页签。只负责展示，数据由编辑器传入。
+// 左侧工作台：提示词 / 历史 / 变更 三个页签。只负责展示，数据由编辑器传入。
+// 版面是一条竖长的侧栏，所以这里一律竖排堆叠，不做左右分栏。
 
 import { html, cls, formatTime, toast } from '../lib.mjs';
 
 export function PromptPanel({ compiled, warnings }) {
-  return html`<div class="row" style="align-items:flex-start;gap:16px">
-    <div class="grow col" style="min-width:0;flex:1.2">
+  return html`<div class="col" style="gap:14px">
+    <div class="col" style="gap:6px;min-width:0">
       <div class="row">
         <span class="mono small muted">${compiled?.stats?.items || 0} 项 · ${compiled?.stats?.bytes || 0} 字节</span>
         <div class="spacer"></div>
@@ -15,7 +16,7 @@ export function PromptPanel({ compiled, warnings }) {
       </div>
       <div class="prompt-box">${compiled?.json || '（编译失败）'}</div>
     </div>
-    <div class="col" style="width:42%;min-width:0">
+    <div class="col" style="gap:6px;min-width:0">
       <span class="mono small muted">校验</span>
       ${warnings.length
         ? html`<ul class="warn-list">
