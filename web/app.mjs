@@ -14,6 +14,37 @@ function Toasts() {
   </div>`;
 }
 
+// 浅色 / 夜间：只切 <html data-theme>，配色全在 CSS 变量里
+const THEME_KEY = 'moss.theme';
+
+function readTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'dark' || saved === 'light') return saved;
+  } catch {
+    /* 隐私模式读不了就按默认来 */
+  }
+  return 'light';
+}
+
+function ThemeToggle() {
+  const [theme, setTheme] = useState(readTheme);
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      /* 存不了就只在本次会话里生效 */
+    }
+  }, [theme]);
+  const dark = theme === 'dark';
+  return html`<button
+    class="icon-btn theme-toggle"
+    title=${dark ? '切到浅色' : '切到夜间模式'}
+    onClick=${() => setTheme(dark ? 'light' : 'dark')}
+  >${dark ? '☀' : '☾'}</button>`;
+}
+
 function Topbar({ route, onOpenSettings, onOpenProjectSettings, onOpenCharacters }) {
   const app = useApp();
   const project = app.project;
@@ -28,6 +59,7 @@ function Topbar({ route, onOpenSettings, onOpenProjectSettings, onOpenCharacters
     ${route.name === 'editor' ? html`<button class="btn ghost" onClick=${() => go('/projects')}>项目列表</button>` : null}
     ${route.name === 'editor' ? html`<button class="btn ghost" onClick=${onOpenCharacters}>角色表</button>` : null}
     ${route.name === 'editor' ? html`<button class="btn ghost" onClick=${onOpenProjectSettings}>项目设置</button>` : null}
+    <${ThemeToggle} />
     <button class="btn" onClick=${onOpenSettings}>设置</button>
   </div>`;
 }

@@ -36,21 +36,24 @@ export function HistoryPanel({ versions, current, onPick }) {
   const list = [...versions].reverse();
   const activeId = current || list[0]?.id;
   if (!list.length) return html`<div class="hint">这一页还没有生成过图片。点右上角「生成」。</div>`;
-  return html`<div class="col" style="gap:10px">
-    <div class="history-strip">
-      ${list.map((v) => {
-        const on = v.id === activeId;
-        return html`<div class=${cls('version', on && 'on')} key=${v.id}>
-          <img src=${v.image} alt="" loading="lazy" title=${v.kind === 'edit' ? `修图版：${v.editPrompt || ''}` : '渲染版'} onClick=${() => onPick(v.id)} />
-          <div class="vmeta">
-            ${v.kind === 'edit' ? html`<span title=${`基于 ${v.base || '?'}：${v.editPrompt || ''}`}>✎</span>` : null}
-            <b>${v.seed ?? '—'}</b>${formatTime(v.at).slice(5)}
-          </div>
-          <button class="vbtn" disabled=${on} onClick=${() => onPick(v.id)}>${on ? '当前' : '用这版'}</button>
-        </div>`;
-      })}
-    </div>
-    <span class="hint">点「用这版」把它设为当前采用的图；历史只读，不会改布局。带 ✎ 的是修图版。</span>
+  return html`<div class="history-strip">
+    ${list.map((v) => {
+      const on = v.id === activeId;
+      return html`<div
+        class=${cls('version', on && 'on')}
+        key=${v.id}
+        title=${on ? `当前采用 ${v.id}` : `点一下用这版（${v.id}${v.kind === 'edit' ? '，修图版' : ''}）`}
+        onClick=${() => onPick(v.id)}
+      >
+        ${v.kind === 'edit'
+          ? html`<span class="kind-badge" title=${`基于 ${v.base || '?'}：${v.editPrompt || ''}`}>编辑</span>`
+          : null}
+        <img src=${v.image} alt="" loading="lazy" title=${v.kind === 'edit' ? `修图版：${v.editPrompt || ''}` : '渲染版'} onClick=${() => onPick(v.id)} />
+        <div class="vmeta">
+          <b>${v.id}</b>${formatTime(v.at).slice(5)}
+        </div>
+      </div>`;
+    })}
   </div>`;
 }
 

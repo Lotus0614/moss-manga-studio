@@ -9,7 +9,7 @@ import { EDIT } from '../../config/manga.mjs';
 
 const firstSwatch = (EDIT.swatches || [])[0] || { value: 'red', hex: '#e11d48' };
 
-export default function EditModal({ open, base, recommended, busy, progress, onClose, onStart }) {
+export default function EditModal({ open, base, busy, progress, onClose, onStart }) {
   const [tool, setTool] = useState(EDIT.tools[0]?.value || 'rect');
   const [paint, setPaint] = useState({ value: firstSwatch.value, hex: firstSwatch.hex });
   const [size, setSize] = useState(6);
@@ -181,6 +181,9 @@ export default function EditModal({ open, base, recommended, busy, progress, onC
       </header>
 
       <div class="body">
+        <div class="edit-tip">
+          在图中框选需要修改的位置，然后写上具体的修改内容；如果需要改多个元素，可以使用不同颜色的框。
+        </div>
         <div class="edit-tools">
           <div class="row" style="gap:4px">
             ${(EDIT.tools || []).map(
@@ -237,14 +240,6 @@ export default function EditModal({ open, base, recommended, busy, progress, onC
           </svg>
         </div>
 
-        <div class="edit-hint hint">
-          ${recommended
-            ? html`${base?.id && base.id !== recommended.id
-                ? `当前编辑的是 ${base.id}${base.kind === 'edit' ? '（修图版）' : ''}。`
-                : ''}推荐使用 ${recommended.id} 进行编辑，多次编辑可能导致图像偏移。<br />`
-            : null}
-          在图上框出要改的地方（不框 = 整页），然后写一句要改什么。涂鸦只是给模型指位置，不会留在成品里。
-        </div>
       </div>
 
       <footer class="edit-foot">
@@ -252,7 +247,7 @@ export default function EditModal({ open, base, recommended, busy, progress, onC
           class="textarea"
           style="min-height:58px"
           value=${prompt}
-          placeholder="要改什么，比如：把框里的气泡尾巴删掉"
+          placeholder="写上具体要改什么，例如：把框里气泡的尾巴删掉"
           onInput=${(e) => setPrompt(e.currentTarget.value)}
         ></textarea>
         <button class="btn inv" disabled=${rendering || starting || !prompt.trim()} onClick=${start}>

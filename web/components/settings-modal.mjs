@@ -162,7 +162,7 @@ export default function SettingsModal({ open, config, onClose, onSaved }) {
         <section class="panel-box">
           <header>
             生图工作流（MOSS）
-            ${form.workflow.name ? html`<span class="tag">${form.workflow.name}</span>` : html`<span class="tag" style="background:#000;color:#fff">未设置</span>`}
+            ${form.workflow.name ? html`<span class="tag">${form.workflow.name}</span>` : html`<span class="tag" style="background:var(--danger);color:#fff">未设置</span>`}
           </header>
           <div class="body">
             <div class="row">

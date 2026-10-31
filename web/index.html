@@ -4,6 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>MOSS 漫画工坊</title>
+  <!-- 早于样式生效，避免切主题时闪一下 -->
+  <script>
+    try {
+      const saved = localStorage.getItem('moss.theme');
+      if (saved === 'dark' || saved === 'light') document.documentElement.dataset.theme = saved;
+    } catch (e) {
+      /* 隐私模式读不了就按默认来 */
+    }
+  </script>
   <link rel="stylesheet" href="/styles/storyboard.css" />
   <!--IMPORTMAP-->
 </head>

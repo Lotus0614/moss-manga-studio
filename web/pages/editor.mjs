@@ -72,7 +72,6 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
   // 修图真正会拿来当参考的那一版（永远是渲染版，由服务端算好）
   const [editBase, setEditBase] = useState(null);
   // 推荐从哪一版改（渲染版），只是提示
-  const [editRecommend, setEditRecommend] = useState(null);
   const [current, setCurrent] = useState('');
   const [selection, setSelection] = useState(null);
   const [tab, setTab] = useState('prompt');
@@ -172,7 +171,6 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
         setVersions(data.versions || []);
         setCurrent(data.current || '');
         setEditBase(data.editBase || null);
-        setEditRecommend(data.editRecommend || null);
         setApp({ page: data.page });
         setSelection(null);
         history.current = [];
@@ -319,7 +317,6 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
         setVersions(data.versions || []);
         setCurrent(data.current || '');
         setEditBase(data.editBase || null);
-        setEditRecommend(data.editRecommend || null);
       })
       .catch(() => {});
   }
@@ -339,7 +336,6 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
         setVersions(data.versions || []);
         setCurrent(data.current || '');
         setEditBase(data.editBase || null);
-        setEditRecommend(data.editRecommend || null);
       })
       .catch(() => {});
   }
@@ -743,7 +739,7 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
         />
         <span class="meta">${page.size[0]}×${page.size[1]} · ${page.items.length} 项 · rev ${page.rev}</span>
         ${errors.length
-          ? html`<span class="tag" style="background:#000;color:#fff">${errors.length} 个错误</span>`
+          ? html`<span class="tag" style="background:var(--danger);color:#fff">${errors.length} 个错误</span>`
           : warns.length
             ? html`<span class="tag">${warns.length} 个提醒</span>`
             : null}
@@ -756,7 +752,7 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
           <button class="btn ghost" onClick=${() => setShowExport(true)}>导出</button>
           ${canEdit
             ? html`<button
-                class="btn"
+                class="btn accent"
                 disabled=${generating || !editBase}
                 title=${editBase ? `修 v${String(editBase.id).replace(/^v/, '')} 这一版（弹出涂鸦框选）` : '这一页还没有渲染图'}
                 onClick=${openEdit}
@@ -916,7 +912,6 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
     <${EditModal}
       open=${editOpen}
       base=${editBase}
-      recommended=${editRecommend}
       busy=${editing}
       progress=${gen?.progress || 0}
       onClose=${() => setEditOpen(false)}
