@@ -9,7 +9,7 @@ import { EDIT } from '../../config/manga.mjs';
 
 const firstSwatch = (EDIT.swatches || [])[0] || { value: 'red', hex: '#e11d48' };
 
-export default function EditModal({ open, base, busy, progress, onClose, onStart }) {
+export default function EditModal({ open, base, onClose, onStart }) {
   const [tool, setTool] = useState(EDIT.tools[0]?.value || 'rect');
   const [paint, setPaint] = useState({ value: firstSwatch.value, hex: firstSwatch.hex });
   const [size, setSize] = useState(6);
@@ -53,7 +53,7 @@ export default function EditModal({ open, base, busy, progress, onClose, onStart
   if (!open) return null;
 
   const hex = paint.hex;
-  const rendering = Boolean(busy);
+  const rendering = starting;
 
   /**
    * 屏幕坐标 → 图片像素坐标。
@@ -176,7 +176,6 @@ export default function EditModal({ open, base, busy, progress, onClose, onStart
         修图
         ${base?.id ? html`<span class="tag">基于 ${base.id}</span>` : null}
         <div class="spacer" style="flex:1"></div>
-        ${rendering ? html`<span class="tag">修图中 ${progress || 0}%</span>` : null}
         <button class="btn sm ghost" disabled=${rendering} onClick=${onClose}>关闭</button>
       </header>
 
@@ -251,7 +250,7 @@ export default function EditModal({ open, base, busy, progress, onClose, onStart
           onInput=${(e) => setPrompt(e.currentTarget.value)}
         ></textarea>
         <button class="btn inv" disabled=${rendering || starting || !prompt.trim()} onClick=${start}>
-          ${rendering ? `修图中 ${progress || 0}%` : starting ? '合成中…' : '开始修'}
+          ${starting ? '提交中…' : '开始修'}
         </button>
       </footer>
     </div>

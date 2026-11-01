@@ -26,6 +26,8 @@ import { PromptPanel, HistoryPanel, ChangesPanel } from '../components/workbench
 import EditModal from '../components/edit-modal.mjs';
 import { exportLongImage, exportPdf } from '../components/export.mjs';
 import { compilePage } from '../../core/compile.mjs';
+import { useLivePage } from '../realtime.mjs';
+import { openDock, trackTask, useTaskForPage } from '../tasks.mjs';
 import { createItem } from '../../core/manga-doc.mjs';
 
 const STYLE_LABELS = [
@@ -75,8 +77,6 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
   const [current, setCurrent] = useState('');
   const [selection, setSelection] = useState(null);
   const [tab, setTab] = useState('prompt');
-  const [gen, setGen] = useState(null);
-  const [busyGen, setBusyGen] = useState(false);
   const [fitScale, setFitScale] = useState(0.55);
   const [zoom, setZoom] = useState(1);
   const [showBoxes, setShowBoxes] = useState(true);
@@ -91,14 +91,14 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
   const [exporting, setExporting] = useState('');
   // 修图：点按钮开弹窗，弹窗里画框/涂鸦 + 写指令
   const [editOpen, setEditOpen] = useState(false);
-  // 外部改动来了但手上有未保存的编辑 → 先提示，不覆盖
-  const [external, setExternal] = useState('');
 
   const stageRef = useRef(null);
   const pageRef = useRef(null);
   const saveTimer = useRef(null);
   const dirtyRef = useRef(false);
-  const jobsRef = useRef({});
+  const savingRef = useRef(false);
+  // 页面文件的 mtime：直接改 JSON 时 rev 不变，靠它判断「是不是新的」
+  const pageMtimeRef = useRef(0);
   const createdFirst = useRef(false);
   const history = useRef([]);
   const clipboard = useRef(null);
@@ -106,6 +106,20 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
   useEffect(() => {
     pageRef.current = page;
   }, [page]);
+
+  // Agent / CLI 改完存档后自动跟上：先比 rev，本地有未保存改动就等保存完再拉
+  const flushLive = useLivePage({
+    projectId,
+    pageId,
+    pageRef,
+    dirtyRef,
+    savingRef,
+    mtimeRef: pageMtimeRef,
+    reloadPage: (id) => reloadPage(id),
+    reloadVersions: (id) => reloadVersions(id),
+    refreshProject: () => loadProject(),
+    refreshPages: () => refreshPages(),
+  });
 
   function setFillAlpha(value) {
     setFillAlphaState(value);
@@ -139,6 +153,17 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
 
   useEffect(() => () => viewTimer.current && clearTimeout(viewTimer.current), []);
 
+  /** 项目变了（Agent 改角色表、项目设置）时也要跟上 */
+  function loadProject() {
+    return api(`/api/projects/${projectId}`)
+      .then((proj) => {
+        setProject(proj);
+        setApp({ project: proj });
+        return proj;
+      })
+      .catch(() => null);
+  }
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -171,12 +196,12 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
         setVersions(data.versions || []);
         setCurrent(data.current || '');
         setEditBase(data.editBase || null);
+        pageMtimeRef.current = Number(data.mtime || 0);
         setApp({ page: data.page });
         setSelection(null);
         history.current = [];
         dirtyRef.current = false;
-        setExternal('');
-        restoreJob(data.page.id);
+        savingRef.current = false;
       })
       .catch((err) => toast(err.message, 'bad'));
     return () => {
@@ -209,64 +234,6 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
     ro.observe(el);
     return () => ro.disconnect();
   }, [page?.size?.[0], page?.size?.[1], page]);
-
-  useEffect(() => {
-    const es = new EventSource('/api/jobs/stream');
-    es.addEventListener('job', (event) => {
-      let job;
-      try {
-        job = JSON.parse(event.data);
-      } catch {
-        return;
-      }
-      // 先按页记下来，切走再切回来还能看到这一页的状态
-      jobsRef.current[job.page] = job;
-      const cur = pageRef.current;
-      if (!cur || job.page !== cur.id) return;
-      setGen(job);
-      if (job.status === 'done') {
-        setBusyGen(false);
-        if (job.kind === 'edit') setEditOpen(false);
-        toast(job.kind === 'edit' ? '修图完成' : '生成完成');
-        reloadPage(cur.id);
-        refreshPages();
-      } else if (job.status === 'error') {
-        setBusyGen(false);
-        toast(job.error || (job.kind === 'edit' ? '修图失败' : '生成失败'), 'bad');
-      }
-    });
-
-    // 外部改动（CLI 出图、Agent 改页面 JSON）由服务器看目录后推过来
-    es.addEventListener('archive', (event) => {
-      let change;
-      try {
-        change = JSON.parse(event.data);
-      } catch {
-        return;
-      }
-      const items = (change.items || []).filter((item) => item.project === projectId);
-      if (!items.length) return;
-
-      const cur = pageRef.current;
-      const touchesPage = items.some(
-        (item) => item.kind === 'project' || item.kind === 'versions' || (item.kind === 'page' && item.page === cur?.id)
-      );
-      if (!touchesPage) {
-        refreshPages();
-        return;
-      }
-      // 手上有没保存的改动 / 正在拖：不覆盖，给个提示让人自己决定
-      if (dirtyRef.current || saveTimer.current) {
-        setExternal(change.at || '');
-        return;
-      }
-      setExternal('');
-      if (cur) reloadPage(cur.id);
-      refreshPages();
-    });
-
-    return () => es.close();
-  }, [projectId]);
 
   // ---- 快捷键
   useEffect(() => {
@@ -336,37 +303,9 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
         setVersions(data.versions || []);
         setCurrent(data.current || '');
         setEditBase(data.editBase || null);
+        pageMtimeRef.current = Number(data.mtime || 0);
       })
       .catch(() => {});
-  }
-
-  /** 切回某一页时恢复它的生成状态：先用手上记着的，再以服务器的任务列表为准 */
-  function restoreJob(id) {
-    const known = jobsRef.current[id];
-    setGen(known || null);
-    setBusyGen(Boolean(known && (known.status === 'queued' || known.status === 'running')));
-
-    api('/api/jobs')
-      .then(({ jobs }) => {
-        if (pageRef.current?.id !== id) return;
-        const latest = (jobs || []).find((job) => job.page === id);
-        if (!latest) return;
-        jobsRef.current[id] = latest;
-        setGen(latest);
-        setBusyGen(latest.status === 'queued' || latest.status === 'running');
-      })
-      .catch(() => {});
-  }
-
-  /** 外部更新本来被未保存改动挡住了，用户点「刷新」= 放弃本地改动，拉最新的 */
-  function applyExternal() {
-    clearTimeout(saveTimer.current);
-    saveTimer.current = null;
-    dirtyRef.current = false;
-    setExternal('');
-    const cur = pageRef.current;
-    if (cur) reloadPage(cur.id);
-    refreshPages();
   }
 
   /** selection 统一形状：{ kind, id, ids }，id 是主选中项，ids 是全部选中 */
@@ -462,14 +401,22 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
   async function saveNow() {
     const cur = pageRef.current;
     if (!cur) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    savingRef.current = true;
     try {
       const saved = await apiPut(`/api/projects/${projectId}/pages/${cur.id}`, { ...cur, replaceItems: true });
       pageRef.current = saved;
+      pageMtimeRef.current = Number(saved.mtime || pageMtimeRef.current || 0);
       dirtyRef.current = false;
       setPage((prev) => (prev && prev.id === saved.id ? { ...prev, rev: saved.rev } : prev));
       refreshPages();
     } catch (err) {
       toast(err.message, 'bad');
+    } finally {
+      savingRef.current = false;
+      // 保存期间攒下的外部更新，现在可以取了
+      flushLive();
     }
   }
 
@@ -489,14 +436,12 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
       onOpenSettings?.();
       return;
     }
-    setBusyGen(true);
     try {
       const res = await apiPost(`/api/projects/${projectId}/pages/${page.id}/render`, {});
-      const started = { page: page.id, status: 'running', progress: 0, id: res.jobId };
-      jobsRef.current[page.id] = started;
-      setGen(started);
+      trackTask(res.task);
+      openDock();
+      toast(`已提交生成任务 · 第 ${page.index} 页`);
     } catch (err) {
-      setBusyGen(false);
       toast(err.message, 'bad');
     }
   }
@@ -504,17 +449,16 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
   /** 修图：弹窗里框好区域、写好指令，交给编辑模型，改完存新版本 */
   async function startEdit({ prompt: request, overlay, marks }) {
     if (!page || !request || generating) return;
-    setBusyGen(true);
     try {
       const res = await apiPost(`/api/projects/${projectId}/pages/${page.id}/edit`, {
         prompt: request,
         ...(overlay ? { overlay, marks } : {}),
       });
-      const started = { page: page.id, kind: 'edit', status: 'running', progress: 0, id: res.jobId, prompt: request };
-      jobsRef.current[page.id] = started;
-      setGen(started);
+      trackTask(res.task);
+      openDock();
+      setEditOpen(false);
+      toast(`已提交修图任务 · 第 ${page.index} 页`);
     } catch (err) {
-      setBusyGen(false);
       toast(err.message, 'bad');
     }
   }
@@ -607,8 +551,11 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
   const selected = selection ? page.items.find((it) => it.id === selection.id) : null;
   const version = versions.find((v) => v.id === current) || versions.slice(-1)[0];
   const image = version?.image || '';
-  const generating = busyGen || Boolean(gen && (gen.status === 'queued' || gen.status === 'running'));
-  const editing = Boolean(generating && gen?.kind === 'edit');
+  // 本页的生成状态由任务队列决定（store 里是服务器镜像）
+  const pageTask = useTaskForPage(page?.id);
+  const generating = Boolean(pageTask && (pageTask.status === 'queued' || pageTask.status === 'running'));
+  const editing = Boolean(generating && pageTask.kind === 'edit');
+  const queuedHere = Boolean(generating && pageTask.status === 'queued');
   const canEdit = Boolean(config?.edit?.name);
   const scale = fitScale * zoom;
 
@@ -743,9 +690,6 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
           : warns.length
             ? html`<span class="tag">${warns.length} 个提醒</span>`
             : null}
-        ${external
-          ? html`<button class="btn sm inv" title="外部改动了这一页，点这里拉最新版本" onClick=${applyExternal}>外部已更新 · 刷新</button>`
-          : null}
         <div class="spacer"></div>
         <div class="head-group actions">
           <button class="btn ghost" onClick=${undo} title="Ctrl+Z">撤销</button>
@@ -757,11 +701,11 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
                 title=${editBase ? `修 v${String(editBase.id).replace(/^v/, '')} 这一版（弹出涂鸦框选）` : '这一页还没有渲染图'}
                 onClick=${openEdit}
               >
-                ${editing ? `修图中 ${gen?.progress || 0}%` : '修图'}
+                ${editing ? '修图中…' : '修图'}
               </button>`
             : null}
           <button class="btn inv" disabled=${errors.length > 0 || generating} onClick=${generate}>
-            ${generating && !editing ? `生成中 ${gen?.progress || 0}%` : '生成'}
+            ${generating && !editing ? (queuedHere ? '排队中' : '生成中…') : '生成'}
           </button>
         </div>
       </div>
@@ -912,8 +856,6 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
     <${EditModal}
       open=${editOpen}
       base=${editBase}
-      busy=${editing}
-      progress=${gen?.progress || 0}
       onClose=${() => setEditOpen(false)}
       onStart=${startEdit}
     />

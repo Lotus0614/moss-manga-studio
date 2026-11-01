@@ -6,8 +6,9 @@
 // 不做 Agent、不做对话：改内容由用户点，或由外部 Agent 走 CLI。
 
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, watch } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, resolve, sep } from 'node:path';
 import { EventEmitter } from 'node:events';
 
@@ -33,7 +34,8 @@ import {
 } from './scripts/lib/archive.mjs';
 import { listWorkflows, readWorkflow, saveWorkflow, checkWorkflow } from './scripts/lib/workflow.mjs';
 import { renderPage } from './scripts/lib/render.mjs';
-import { editPage, sourceVersion, recommendedVersion } from './scripts/lib/edit.mjs';
+import { editPage, sourceVersion } from './scripts/lib/edit.mjs';
+import { createTasks } from './scripts/lib/tasks.mjs';
 import { compilePage } from './core/compile.mjs';
 import { normalizeCharacters } from './core/characters.mjs';
 import { createPanelItem } from './core/manga-doc.mjs';
@@ -49,22 +51,19 @@ const CORE = resolve(import.meta.dirname, 'core');
 
 const bus = new EventEmitter();
 bus.setMaxListeners(32);
-const jobs = [];
+// 生成任务表 + 队列：网页点生成、Agent 用 CLI 出图，最后都记到这里
+const tasks = createTasks({ emit: (type, task) => bus.emit(type, task) });
 
 // ---------------------------------------------------------------- 存档监听
 // CLI / Agent 直接改存档（写页面 JSON、出图）不会经过服务器，这里盯着目录，
 // 变了就通过 SSE 推给网页，省得手动刷新。
+//
+// 判断「要不要刷新」靠 rev / 版本号比较，不靠时间窗：
+// 时间窗会漏事件（网页刚存完、Agent 紧接着改，那次改动就永久丢了）。
 
 const WATCH_DEBOUNCE = 300;
-const SELF_WRITE_WINDOW = 1200;
 let pendingChanges = new Map();
 let watchTimer = null;
-let selfWriteUntil = 0;
-
-/** 服务器自己发起的写（网页保存、网页出图）不应该再推回给网页 */
-function markSelfWrite() {
-  selfWriteUntil = Date.now() + SELF_WRITE_WINDOW;
-}
 
 /** 只关心页面、版本、图片、项目文件；日志/pid/日志滚动一律忽略 */
 function classifyPath(rel) {
@@ -80,14 +79,76 @@ function classifyPath(rel) {
   return null;
 }
 
+/** 每个项目已经见过的版本号：用来认出「谁出了新版图」 */
+const knownVersions = new Map();
+
+async function rememberVersions(slug) {
+  const store = await getVersions(ARCHIVE, slug).catch(() => ({ items: [] }));
+  const ids = (store.items || []).map((v) => v.id);
+  knownVersions.set(slug, new Set(ids));
+  return store;
+}
+
+async function seedVersions() {
+  const projects = await listProjects(ARCHIVE).catch(() => []);
+  for (const project of projects) await rememberVersions(project.slug);
+}
+
+/**
+ * 新出现的版本 = 外面出的图（CLI / Agent）。
+ * 网页自己点生成的那条已经有任务了，用 byVersion / recentlyTouched 排掉，避免一条结果两条任务。
+ */
+async function attributeVersions(slug) {
+  const store = await getVersions(ARCHIVE, slug).catch(() => ({ items: [] }));
+  const seen = knownVersions.get(slug) || new Set();
+  const all = store.items || [];
+  const fresh = all.filter((v) => !seen.has(v.id));
+  knownVersions.set(slug, new Set(all.map((v) => v.id)));
+
+  for (const version of fresh) {
+    if (tasks.byVersion(version.id)) continue;
+    if (tasks.recentlyTouched(slug, version.page)) continue;
+    const page = await getPage(ARCHIVE, slug, version.page).catch(() => null);
+    tasks.add({
+      project: slug,
+      page: version.page,
+      index: version.pageIndex ?? page?.index,
+      title: page?.title || '',
+      kind: version.kind || 'render',
+      source: 'agent',
+      status: 'done',
+      versionId: version.id,
+      image: version.image,
+      seed: version.seed,
+      at: version.at || new Date().toISOString(),
+      finishedAt: version.at || new Date().toISOString(),
+    });
+  }
+}
+
 async function flushChanges() {
   watchTimer = null;
   const items = [...pendingChanges.values()];
   pendingChanges = new Map();
   if (!items.length) return;
-  if (Date.now() < selfWriteUntil) return;
+
+  // 页面事件带上 rev：客户端拿它和手上的 page.rev 比，比自己新才刷新
+  for (const item of items) {
+    if (item.kind !== 'page') continue;
+    const page = await getPage(ARCHIVE, item.project, item.page).catch(() => null);
+    if (!page) continue;
+    item.rev = page.rev;
+    item.index = page.index;
+    item.title = page.title;
+    item.mtime = await pageMtime(item.project, item.page);
+  }
+
   const state = await readState(ARCHIVE).catch(() => ({}));
   bus.emit('archive', { at: new Date().toISOString(), rev: state.rev ?? 0, items });
+
+  for (const slug of new Set(items.filter((one) => one.kind === 'versions').map((one) => one.project))) {
+    await attributeVersions(slug);
+  }
 }
 
 function startArchiveWatch() {
@@ -190,6 +251,41 @@ function sse(res) {
 
 const safe = (name) => String(name).replace(/[^a-zA-Z0-9._-]/g, '');
 
+/**
+ * 存档指纹：只读 stat（不读内容），文件一变指纹就变。
+ * 客户端每几秒比对一次，万一 fs.watch 漏事件也能自己发现该刷新了。
+ */
+async function statLine(file) {
+  try {
+    const info = await stat(file);
+    return `${info.size}:${Math.round(info.mtimeMs)}`;
+  } catch {
+    return '-';
+  }
+}
+
+/** 页面文件的修改时间：直接改 JSON（不经过 savePage）时 rev 不变，得靠它认出来 */
+async function pageMtime(slug, pageId) {
+  try {
+    const info = await stat(join(ARCHIVE, 'projects', slug, 'pages', `${pageId}.json`));
+    return Math.round(info.mtimeMs);
+  } catch {
+    return 0;
+  }
+}
+
+async function revisionStamp(slug) {
+  const slugs = slug ? [slug] : (await listProjects(ARCHIVE).catch(() => [])).map((p) => p.slug);
+  const parts = [];
+  for (const one of slugs) {
+    const base = join(ARCHIVE, 'projects', one);
+    parts.push(await statLine(join(base, 'versions.json')));
+    const files = await readdir(join(base, 'pages')).catch(() => []);
+    for (const file of files.sort()) parts.push(await statLine(join(base, 'pages', file)));
+  }
+  return createHash('sha1').update(parts.join('|')).digest('hex').slice(0, 12);
+}
+
 // ---------------------------------------------------------------- 路由
 
 async function route(req, res, url) {
@@ -257,20 +353,33 @@ async function route(req, res, url) {
 
   if (path === '/api/ack' && method === 'POST') return json(res, 200, await ack(ARCHIVE));
 
-  if (path === '/api/jobs' && method === 'GET') return json(res, 200, { jobs: jobs.slice(-30).reverse() });
+  // 任务列表：网页只读，队列由服务器内部推进
+  if ((path === '/api/tasks' || path === '/api/jobs') && method === 'GET') {
+    const project = url.searchParams.get('project') || '';
+    const limit = Math.min(200, Number(url.searchParams.get('limit')) || 50);
+    const list = tasks.list(limit).filter((task) => !project || task.project === project);
+    const out = { tasks: list, active: tasks.active() };
+    return json(res, 200, path === '/api/jobs' ? { ...out, jobs: out.tasks } : out);
+  }
 
-  if (path === '/api/jobs/stream' && method === 'GET') {
+  // 存档指纹：SSE 万一把事件漏了，客户端靠它发现「该刷新了」
+  if (path === '/api/revision' && method === 'GET') {
+    const project = safe(url.searchParams.get('project') || '');
+    return json(res, 200, { stamp: await revisionStamp(project), active: tasks.active() });
+  }
+
+  if ((path === '/api/stream' || path === '/api/jobs/stream') && method === 'GET') {
     const stream = sse(res);
-    const onJob = (job) => stream.send('job', job);
+    const onTask = (task) => stream.send('task', task);
     const onArchive = (change) => stream.send('archive', change);
-    bus.on('job', onJob);
+    bus.on('task', onTask);
     bus.on('archive', onArchive);
-    for (const job of jobs.slice(-20)) stream.send('job', job);
+    stream.send('snapshot', { tasks: tasks.list(50), active: tasks.active() });
     // 长连接别被中间层掐掉
     const ping = setInterval(() => res.write(':ping\n\n'), 15000);
     req.on('close', () => {
       clearInterval(ping);
-      bus.off('job', onJob);
+      bus.off('task', onTask);
       bus.off('archive', onArchive);
     });
     return;
@@ -389,32 +498,29 @@ async function route(req, res, url) {
       if (action === 'render' && method === 'POST') {
         const payload = await body(req);
         const config = await readConfig(CONFIG_DIR);
-        const job = { id: `job_${Date.now().toString(36)}`, page: page.id, index: page.index, kind: 'render', status: 'running', progress: 0, at: new Date().toISOString() };
-        jobs.push(job);
-        if (jobs.length > 60) jobs.shift();
-        bus.emit('job', { ...job });
-        renderPage({
-          dir: ARCHIVE,
-          configDir: CONFIG_DIR,
-          slug,
-          project,
-          page,
-          config,
-          opts: payload,
-          onProgress: (p) => {
-            job.progress = p?.max ? Math.round((p.value / p.max) * 100) : job.progress;
-            bus.emit('job', { ...job });
-          },
-        })
-          .then((result) => {
-            Object.assign(job, { status: 'done', progress: 100, image: result.image, seed: result.seed, ms: result.ms });
-            bus.emit('job', { ...job });
-          })
-          .catch((err) => {
-            Object.assign(job, { status: 'error', error: err.message });
-            bus.emit('job', { ...job });
+        if (tasks.activeFor(slug, page.id)) return fail(res, 409, '这一页已经有一个生成任务在排队或正在跑了');
+        const task = tasks.add({
+          project: slug,
+          page: page.id,
+          index: page.index,
+          title: page.title || '',
+          kind: 'render',
+          source: 'web',
+        });
+        tasks.enqueue(task, async (_task, ctx) => {
+          const result = await renderPage({
+            dir: ARCHIVE,
+            configDir: CONFIG_DIR,
+            slug,
+            project,
+            page,
+            config,
+            opts: payload,
+            onProgress: (p) => ctx.progress(p?.max ? Math.round((p.value / p.max) * 100) : 0),
           });
-        return json(res, 202, { jobId: job.id });
+          return { image: result.image, seed: result.seed, versionId: result.version?.id };
+        });
+        return json(res, 202, { task: tasks.get(task.id) });
       }
 
       if (action === 'edit' && method === 'POST') {
@@ -423,61 +529,49 @@ async function route(req, res, url) {
         const config = await readConfig(CONFIG_DIR);
         const overlay = decodeDataUrl(payload.overlay);
         if (payload.overlay && !overlay) return fail(res, 400, '涂鸦图格式不对：要 data:image/png;base64,…');
-        const job = {
-          id: `job_${Date.now().toString(36)}`,
+        if (tasks.activeFor(slug, page.id)) return fail(res, 409, '这一页已经有一个任务在排队或正在跑了');
+        const task = tasks.add({
+          project: slug,
           page: page.id,
           index: page.index,
+          title: page.title || '',
           kind: 'edit',
+          source: 'web',
           prompt: String(payload.prompt || ''),
           marks: Array.isArray(payload.marks) ? payload.marks.length : 0,
-          status: 'running',
-          progress: 0,
-          at: new Date().toISOString(),
-        };
-        jobs.push(job);
-        if (jobs.length > 60) jobs.shift();
-        bus.emit('job', { ...job });
-        editPage({
-          dir: ARCHIVE,
-          configDir: CONFIG_DIR,
-          slug,
-          project,
-          page,
-          config,
-          opts: {
-            prompt: payload.prompt,
-            seed: payload.seed,
-            marks: payload.marks,
-            ...(overlay ? { overlay: overlay.buffer, overlayExt: overlay.ext } : {}),
-          },
-          onProgress: (p) => {
-            job.progress = p?.max ? Math.round((p.value / p.max) * 100) : job.progress;
-            bus.emit('job', { ...job });
-          },
-        })
-          .then((result) => {
-            Object.assign(job, { status: 'done', progress: 100, image: result.image, base: result.base, versionId: result.version?.id, ms: result.ms });
-            bus.emit('job', { ...job });
-          })
-          .catch((err) => {
-            Object.assign(job, { status: 'error', error: err.message });
-            bus.emit('job', { ...job });
+        });
+        tasks.enqueue(task, async (_task, ctx) => {
+          const result = await editPage({
+            dir: ARCHIVE,
+            configDir: CONFIG_DIR,
+            slug,
+            project,
+            page,
+            config,
+            opts: {
+              prompt: payload.prompt,
+              seed: payload.seed,
+              marks: payload.marks,
+              ...(overlay ? { overlay: overlay.buffer, overlayExt: overlay.ext } : {}),
+            },
+            onProgress: (p) => ctx.progress(p?.max ? Math.round((p.value / p.max) * 100) : 0),
           });
-        return json(res, 202, { jobId: job.id });
+          return { image: result.image, base: result.base, versionId: result.version?.id };
+        });
+        return json(res, 202, { task: tasks.get(task.id) });
       }
 
       if (method === 'GET') {
         const store = await getVersions(ARCHIVE, slug);
         const items = store.items.filter((v) => v.page === page.id);
-        // 修图用「当前采用的那一版」；另外给一个「推荐从哪版改」的提示（渲染版）
+        // 修图用「当前采用的那一版」
         const base = sourceVersion(store, page.id);
-        const recommend = recommendedVersion(store, page.id);
         return json(res, 200, {
           page,
           versions: items,
           current: currentOf(store, page.id),
           editBase: base ? { id: base.id, image: base.image, kind: base.kind || 'render' } : null,
-          editRecommend: recommend ? { id: recommend.id, image: recommend.image } : null,
+          mtime: await pageMtime(slug, page.id),
         });
       }
       if (method === 'PUT') {
@@ -494,7 +588,7 @@ async function route(req, res, url) {
           next.items = [...map.values()];
         }
         const saved = await savePage(ARCHIVE, slug, next, { actor: 'web' });
-        return json(res, 200, saved.page);
+        return json(res, 200, { ...saved.page, mtime: await pageMtime(slug, page.id) });
       }
       if (method === 'DELETE') {
         await removePage(ARCHIVE, slug, page.id);
@@ -553,8 +647,6 @@ function importmap(vendored) {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-  // 自己写存档不算「外部改动」，别推给自己
-  if (req.method !== 'GET' && req.method !== 'HEAD') markSelfWrite();
   try {
     const handled = await route(req, res, url);
     if (handled !== false) return;
@@ -570,6 +662,8 @@ const server = createServer(async (req, res) => {
 
 await ensureConfig(CONFIG_DIR);
 await ensureArchive(ARCHIVE);
+// 先记下现有版本号，之后新增的才算「外部出的图」
+await seedVersions();
 startArchiveWatch();
 server.listen(PORT, HOST, async () => {
   const config = await readConfig(CONFIG_DIR);

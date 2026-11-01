@@ -6,6 +6,8 @@ import EditorPage from './pages/editor.mjs';
 import SettingsModal from './components/settings-modal.mjs';
 import ProjectSettings from './components/project-settings.mjs';
 import CharactersModal from './components/characters-modal.mjs';
+import TaskDock from './components/task-dock.mjs';
+import { connectTasks } from './tasks.mjs';
 
 function Toasts() {
   const items = useToasts();
@@ -80,6 +82,11 @@ function App() {
       .catch((err) => toast(err.message, 'bad'));
   }, []);
 
+  // 任务队列：一条 SSE 连全站共用（切页面、切项目都不断）
+  useEffect(() => {
+    connectTasks();
+  }, []);
+
   useEffect(() => {
     if (route.name !== 'editor') setApp({ project: null, page: null });
   }, [route.name]);
@@ -123,6 +130,7 @@ function App() {
       onSaved=${(p) => setApp({ project: p })}
     />
     <${SettingsModal} open=${settingsOpen} config=${config} onClose=${() => setSettingsOpen(false)} onSaved=${applyConfig} />
+    <${TaskDock} />
     <${Toasts} />
   </div>`;
 }
