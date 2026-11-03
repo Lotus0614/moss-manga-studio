@@ -8,6 +8,12 @@ const ARCHIVE = process.argv[2];
 const SLUG = process.argv[3];
 const PAGE = process.argv[4] || 'p01';
 
+const SAFE_SEGMENT = /^[a-zA-Z0-9_-]+$/;
+if (!SAFE_SEGMENT.test(SLUG || '') || !SAFE_SEGMENT.test(PAGE || '')) {
+  console.error('SLUG/PAGE 只能包含字母、数字、下划线、短横线');
+  process.exit(1);
+}
+
 const dir = join(ARCHIVE, 'projects', SLUG);
 const store = JSON.parse(await readFile(join(dir, 'versions.json'), 'utf8'));
 const candidates = store.items.filter((v) => v.page === PAGE && v.promptJson);
