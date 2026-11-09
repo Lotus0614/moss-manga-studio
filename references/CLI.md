@@ -256,7 +256,7 @@ manga ack
 ## serve / stop / open
 
 ```bash
-manga serve [--port 5123] [--open]
+manga serve [--port 5123] [--open] [--lan]
 manga stop
 manga open [--port 5123]
 ```
@@ -264,13 +264,26 @@ manga open [--port 5123]
 `serve` 是后台进程（pid 写在 `data/server.pid`），不占前台，**幂等**：已经在跑时不会再起一个，
 只回报地址（`预览服务已经在跑：http://127.0.0.1:5123`）。所以「检查有没有启动」不需要别的命令，直接跑 `serve` 就行。
 
+**在手机上看**：加 `--lan`，服务改成监听 `0.0.0.0`，并把本机局域网地址打印出来：
+
+```
+预览已启动：http://127.0.0.1:5123
+手机（和电脑同一个 Wi-Fi）打开：
+  http://192.168.1.23:5123
+注意：同一局域网里任何人都能打开这个地址、看到 data/ 里的存档，只在可信网络下用。
+```
+
+手机和电脑要在同一个 Wi-Fi；打不开通常是系统防火墙挡了 Node（放行一次即可）。
+如果服务已经在跑但当时没带 `--lan`，`serve --lan` 只会提示你先 `stop` 再重开——它不会偷偷换监听地址。
+
 `open` 只是把浏览器打开到该地址，不启动服务。`stop` 按端口找进程，`start.bat`、`serve` 起的都能关。
 
-服务器自己还会写 `data/server.json`（`{ url, port, pid }`）：CLI 出图时靠它找到预览服务并播报进度
-（`MOSS_SERVER` 环境变量可以覆盖地址）。排查时可以 `MOSS_NO_WATCH=1 node server.mjs` 关掉文件监听——
+服务器自己还会写 `data/server.json`（`{ url, port, host, pid }`）：CLI 出图时靠它找到预览服务并播报进度
+（`MOSS_SERVER` 环境变量可以覆盖地址）。这里的 `url` 永远是 `http://127.0.0.1:<port>`，`--lan` 只影响监听地址
+和打印出来的局域网地址。排查时可以 `MOSS_NO_WATCH=1 node server.mjs` 关掉文件监听——
 此时网页只靠「任务事件 + 5 秒轮询」刷新。
 
-默认端口 5123，占用时换 `--port`。地址固定是 `http://127.0.0.1:<port>`。
+默认端口 5123，占用时换 `--port`。本机地址固定是 `http://127.0.0.1:<port>`。
 
 ---
 

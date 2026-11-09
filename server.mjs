@@ -749,11 +749,13 @@ setInterval(() => {
   if (tasks.sweep()) bus.emit('task-dirty');
 }, 5000).unref();
 
-// CLI 靠这个文件找到预览服务器（播报出图进度用）
+// CLI 靠这个文件找到预览服务器（播报出图进度用）。
+// 地址永远写 127.0.0.1：哪怕监听 0.0.0.0（--lan），本机自己也是走回环更稳。
 const SERVER_INFO = join(ARCHIVE, 'server.json');
 async function writeServerInfo() {
   try {
-    await writeFile(SERVER_INFO, `${JSON.stringify({ url: `http://${HOST}:${PORT}`, port: PORT, pid: process.pid, at: new Date().toISOString() }, null, 2)}\n`, 'utf8');
+    const info = { url: `http://127.0.0.1:${PORT}`, port: PORT, host: HOST, pid: process.pid, at: new Date().toISOString() };
+    await writeFile(SERVER_INFO, `${JSON.stringify(info, null, 2)}\n`, 'utf8');
   } catch (err) {
     console.error(`[server] 写 server.json 失败（CLI 播报会退化）：${err.message}`);
   }
@@ -772,7 +774,8 @@ server.listen(PORT, HOST, async () => {
   const state = await readState(ARCHIVE);
   await writeServerInfo();
   console.log('');
-  console.log(`  MOSS 漫画预览  http://${HOST}:${PORT}`);
+  console.log(`  MOSS 漫画预览  http://127.0.0.1:${PORT}`);
+  if (HOST === '0.0.0.0') console.log(`  监听 0.0.0.0：手机用本机局域网 IP 打开（manga serve --lan 会打印出来）`);
   console.log(`  配置 ${CONFIG_DIR}`);
   console.log(`  存档 ${ARCHIVE}（rev ${state.rev}）`);
   console.log(`  ComfyUI ${config.comfy.url} · 工作流 ${config.workflow.name || '（未设置）'} · 参数 ${Object.keys(config.params || {}).length} 个`);

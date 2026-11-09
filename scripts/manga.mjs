@@ -9,6 +9,7 @@
 import { spawn } from 'node:child_process';
 import { readFile, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -761,14 +762,57 @@ async function cmdAck() {
   out({ ok: true, ...result }, `已确认，ackedRev = ${result.ackedRev}`);
 }
 
+/** 本机所有能被局域网访问到的 IPv4 地址（手机用它打开网页）。
+ *  虚拟网卡、蓝牙、APIPA 都跳过；Wi-Fi / 无线网卡排前面，多个时第一个最可能是对的。 */
+function lanAddresses(port) {
+  const SKIP = /(vEthernet|VirtualBox|VMware|Hyper-V|Loopback|Bluetooth|Tailscale|ZeroTier|TAP|TUN)/i;
+  const WIRELESS = /(wi-?fi|wlan|无线)/i;
+  const found = [];
+  for (const [name, addresses] of Object.entries(networkInterfaces())) {
+    if (SKIP.test(name)) continue;
+    for (const address of addresses || []) {
+      if (address.family !== 'IPv4' || address.internal) continue;
+      if (address.address.startsWith('169.254.')) continue;
+      found.push({ name, url: `http://${address.address}:${port}`, wireless: WIRELESS.test(name) });
+    }
+  }
+  found.sort((a, b) => Number(b.wireless) - Number(a.wireless));
+  return found.map(({ name, url }) => ({ name, url }));
+}
+
 async function cmdServe() {
   const port = Number(flags.port || 5123);
+  const lan = Boolean(flags.lan);
+  const host = lan ? '0.0.0.0' : '127.0.0.1';
   const pidFile = join(DIR, 'server.pid');
+  const localUrl = `http://127.0.0.1:${port}`;
+  const lanList = lan ? lanAddresses(port) : [];
+  const lanUrls = lanList.map((one) => one.url);
+  const lanText = lan
+    ? `\n手机（和电脑同一个 Wi-Fi）打开：\n${
+        lanList.length
+          ? lanList.map((one) => `  ${one.url}   （网卡 ${one.name}）`).join('\n')
+          : '  （没找到局域网地址，检查一下网卡）'
+      }\n注意：同一局域网里任何人都能打开这个地址、看到 data/ 里的存档，只在可信网络下用。`
+    : '';
+
   if (existsSync(pidFile)) {
     const pid = Number((await readFile(pidFile, 'utf8')).trim());
     try {
       process.kill(pid, 0);
-      return out({ ok: true, running: true, url: `http://127.0.0.1:${port}` }, `预览服务已经在跑：http://127.0.0.1:${port}`);
+      // 已经在跑：看看它当初是不是开着局域网监听，别给一个连不上的地址
+      let runningHost = '';
+      try {
+        runningHost = JSON.parse(await readFile(join(DIR, 'server.json'), 'utf8')).host || '';
+      } catch {
+        /* 没有 server.json 就当它只监听本机 */
+      }
+      const reachable = !lan || runningHost === '0.0.0.0';
+      const hint = reachable ? lanText : '\n它现在只监听本机；要让手机访问，先 manga stop，再 manga serve --lan。';
+      return out(
+        { ok: true, running: true, url: localUrl, lan: reachable ? lanUrls : [] },
+        `预览服务已经在跑：${localUrl}${hint}`
+      );
     } catch {
       await rm(pidFile, { force: true });
     }
@@ -777,12 +821,12 @@ async function cmdServe() {
   const child = spawn(process.execPath, [SERVER], {
     detached: true,
     stdio: 'ignore',
-    env: { ...process.env, MOSS_ARCHIVE: DIR, PORT: String(port) },
+    env: { ...process.env, MOSS_ARCHIVE: DIR, PORT: String(port), HOST: host },
   });
   child.unref();
   await writeFile(pidFile, String(child.pid), 'utf8');
 
-  const url = `http://127.0.0.1:${port}`;
+  const url = localUrl;
   for (let i = 0; i < 40; i += 1) {
     await new Promise((r) => setTimeout(r, 250));
     try {
@@ -793,7 +837,10 @@ async function cmdServe() {
     }
   }
   if (flags.open) openBrowser(url);
-  out({ ok: true, running: true, url, pid: child.pid }, `预览已启动：${url}\n改完页面保存后刷新即可；关闭用 manga stop`);
+  out(
+    { ok: true, running: true, url, lan: lanUrls, pid: child.pid },
+    `预览已启动：${url}${lanText}\n改完页面保存后刷新即可；关闭用 manga stop`
+  );
 }
 
 async function cmdStop() {
