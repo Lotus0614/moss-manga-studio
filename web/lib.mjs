@@ -114,6 +114,34 @@ export function useRoute() {
   return route;
 }
 
+// ---------------------------------------------------------------- 视口
+// 只回答「现在是不是手机宽度 / 是不是手指」。布局本身交给 CSS 断点，
+// 这里只给那些必须由 JS 决定的（画布手柄大小、画布留白）。
+
+const PHONE_QUERY = '(max-width: 720px)';
+const COARSE_QUERY = '(pointer: coarse)';
+
+function readViewport() {
+  if (typeof window === 'undefined') return { phone: false, coarse: false, width: 1280, mode: 'desktop' };
+  const phone = window.matchMedia(PHONE_QUERY).matches;
+  const coarse = window.matchMedia(COARSE_QUERY).matches;
+  const width = window.innerWidth;
+  return { phone, coarse, width, mode: phone ? 'phone' : width <= 1024 ? 'tablet' : 'desktop' };
+}
+
+export function useViewport() {
+  const [viewport, setViewport] = useState(readViewport);
+  useEffect(() => {
+    const lists = [window.matchMedia(PHONE_QUERY), window.matchMedia(COARSE_QUERY)];
+    const onChange = () => setViewport(readViewport());
+    for (const list of lists) list.addEventListener('change', onChange);
+    return () => {
+      for (const list of lists) list.removeEventListener('change', onChange);
+    };
+  }, []);
+  return viewport;
+}
+
 export function useLoad(loader, deps = []) {
   const [state, setState] = useState({ data: null, error: '', loading: true });
   const [tick, setTick] = useState(0);
@@ -167,6 +195,58 @@ export function useApp() {
     return () => appListeners.delete(fn);
   }, []);
   return app;
+}
+
+// ---------------------------------------------------------------- 主题
+// 浅色 / 夜间只在 <html data-theme> 上换一组 CSS 变量。放在这里是为了让顶栏和
+// 手机「页面»项目」里都能切，而不是只有一个按钮能改。
+
+const THEME_KEY = 'moss.theme';
+
+function readStoredTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'dark' || saved === 'light') return saved;
+  } catch {
+    /* 隐私模式读不了就按默认来 */
+  }
+  return 'light';
+}
+
+export const themeState = { value: typeof document === 'undefined' ? 'light' : readStoredTheme() };
+const themeListeners = new Set();
+
+function applyTheme(value) {
+  if (typeof document !== 'undefined') document.documentElement.dataset.theme = value;
+}
+
+applyTheme(themeState.value);
+
+export function setTheme(next) {
+  const value = next === 'dark' ? 'dark' : 'light';
+  themeState.value = value;
+  applyTheme(value);
+  try {
+    localStorage.setItem(THEME_KEY, value);
+  } catch {
+    /* 存不了就只在本次会话里生效 */
+  }
+  for (const fn of themeListeners) fn(value);
+}
+
+export function toggleTheme() {
+  setTheme(themeState.value === 'dark' ? 'light' : 'dark');
+}
+
+export function useTheme() {
+  const [value, setValue] = useState(themeState.value);
+  useEffect(() => {
+    const fn = (next) => setValue(next);
+    themeListeners.add(fn);
+    fn(themeState.value);
+    return () => themeListeners.delete(fn);
+  }, []);
+  return value;
 }
 
 // ---------------------------------------------------------------- 全局提示
