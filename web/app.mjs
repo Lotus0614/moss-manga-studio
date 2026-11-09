@@ -1,6 +1,6 @@
 // 应用根组件：顶栏 + 路由 + 设置弹窗 + 全局提示。
 
-import { html, render, useEffect, useState, useRoute, useApp, setApp, useToasts, api, go, toast } from './lib.mjs';
+import { html, render, useEffect, useState, useRoute, useApp, setApp, useToasts, api, go, toast, useTheme, toggleTheme } from './lib.mjs';
 import ProjectsPage from './pages/projects.mjs';
 import EditorPage from './pages/editor.mjs';
 import SettingsModal from './components/settings-modal.mjs';
@@ -16,34 +16,16 @@ function Toasts() {
   </div>`;
 }
 
-// 浅色 / 夜间：只切 <html data-theme>，配色全在 CSS 变量里
-const THEME_KEY = 'moss.theme';
-
-function readTheme() {
-  try {
-    const saved = localStorage.getItem(THEME_KEY);
-    if (saved === 'dark' || saved === 'light') return saved;
-  } catch {
-    /* 隐私模式读不了就按默认来 */
-  }
-  return 'light';
-}
+// 浅色 / 夜间：只切 <html data-theme>，配色全在 CSS 变量里（状态在 lib.mjs，
+// 因为手机上的入口挪进了页面抽屉，不止顶栏这一处能切）
 
 function ThemeToggle() {
-  const [theme, setTheme] = useState(readTheme);
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    try {
-      localStorage.setItem(THEME_KEY, theme);
-    } catch {
-      /* 存不了就只在本次会话里生效 */
-    }
-  }, [theme]);
+  const theme = useTheme();
   const dark = theme === 'dark';
   return html`<button
     class="icon-btn theme-toggle"
     title=${dark ? '切到浅色' : '切到夜间模式'}
-    onClick=${() => setTheme(dark ? 'light' : 'dark')}
+    onClick=${toggleTheme}
   >${dark ? '☀' : '☾'}</button>`;
 }
 
@@ -58,11 +40,13 @@ function Topbar({ route, onOpenSettings, onOpenProjectSettings, onOpenCharacters
       ? html`<div class="crumb"><b>${project.name}</b>${page ? ` / 第 ${page.index} 页${page.title ? ` · ${page.title}` : ''}` : ''}</div>`
       : html`<div class="crumb">项目</div>`}
     <div class="spacer"></div>
-    ${route.name === 'editor' ? html`<button class="btn ghost" onClick=${() => go('/projects')}>项目列表</button>` : null}
-    ${route.name === 'editor' ? html`<button class="btn ghost" onClick=${onOpenCharacters}>角色表</button>` : null}
-    ${route.name === 'editor' ? html`<button class="btn ghost" onClick=${onOpenProjectSettings}>项目设置</button>` : null}
-    <${ThemeToggle} />
-    <button class="btn" onClick=${onOpenSettings}>设置</button>
+    <div class="topbar-actions">
+      ${route.name === 'editor' ? html`<button class="btn ghost" onClick=${() => go('/projects')}>项目列表</button>` : null}
+      ${route.name === 'editor' ? html`<button class="btn ghost" onClick=${onOpenCharacters}>角色表</button>` : null}
+      ${route.name === 'editor' ? html`<button class="btn ghost" onClick=${onOpenProjectSettings}>项目设置</button>` : null}
+      <${ThemeToggle} />
+      <button class="btn" onClick=${onOpenSettings}>设置</button>
+    </div>
   </div>`;
 }
 
@@ -103,6 +87,8 @@ function App() {
       pageId=${route.params.pageId}
       config=${config}
       onOpenSettings=${() => setSettingsOpen(true)}
+      onOpenCharacters=${() => setCharactersOpen(true)}
+      onOpenProjectSettings=${() => setProjectSettingsOpen(true)}
     />`;
   } else {
     body = html`<${ProjectsPage} />`;

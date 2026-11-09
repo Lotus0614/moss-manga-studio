@@ -108,7 +108,7 @@ export function Field({ field, value, onChange, characters }) {
 }
 
 /** 单个元素：字段由注册表决定，全部展示（右栏不做可见性过滤），高级字段折叠 */
-export default function ItemForm({ item, patchItem, removeItem, onBack, onCopy, characters }) {
+export default function ItemForm({ item, patchItem, removeItem, onBack, onCopy, characters, canCycle = false, onCycle }) {
   const [basicFields, advancedFields] = splitFields(fieldsOf(item.type));
   const renderField = (field) => html`<${Field}
     key=${field.key}
@@ -123,6 +123,7 @@ export default function ItemForm({ item, patchItem, removeItem, onBack, onCopy, 
       <button class="btn sm ghost" onClick=${onBack}>← 返回</button>
       <span class="tag">${TYPE_LABEL(item.type)}</span>
       <div class="spacer"></div>
+      ${canCycle ? html`<button class="btn sm ghost" title="选中压在它下面的那一层" onClick=${onCycle}>选下层</button>` : null}
       <button class="btn sm ghost" onClick=${onCopy}>复制</button>
       <button class="btn sm ghost" onClick=${() => removeItem(item.id)}>删除</button>
     </div>

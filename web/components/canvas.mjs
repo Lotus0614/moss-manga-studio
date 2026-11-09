@@ -112,7 +112,7 @@ function ItemBox({ item, page, index, selected, primary, fillAlpha, characters }
   </g>`;
 }
 
-export default function Canvas({ page, image, showBoxes = true, grid = 4, scale, selection, fillAlpha = 0.5, characters = [], onSelect, onBegin, onChange, onCommit }) {
+export default function Canvas({ page, image, showBoxes = true, grid = 4, scale, handleSize = 12, selection, fillAlpha = 0.5, characters = [], onSelect, onBegin, onChange, onCommit }) {
   const [W, H] = page.size;
   const svgRef = useRef(null);
   const dragRef = useRef(null);
@@ -167,6 +167,8 @@ export default function Canvas({ page, image, showBoxes = true, grid = 4, scale,
    */
   function onCanvasDown(event) {
     if (event.button !== 0) return;
+    // 触屏上第二根手指是留给缩放用的，别让它再开一次拖拽
+    if (event.isPrimary === false) return;
     if (!showBoxes) {
       onSelect?.(null);
       return;
@@ -215,7 +217,17 @@ export default function Canvas({ page, image, showBoxes = true, grid = 4, scale,
       if (item) origin[id] = [...item.bbox];
     }
     if (!origin[primary]) return;
-    dragRef.current = { ids: Object.keys(origin), primary, mode, start: pointOf(event), origin, moved: false, collapse };
+    dragRef.current = {
+      ids: Object.keys(origin),
+      primary,
+      mode,
+      start: pointOf(event),
+      origin,
+      moved: false,
+      collapse,
+      // 只跟按下的这根手指/指针走，别被第二根手指带跑
+      pointerId: event.pointerId,
+    };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp, { once: true });
   }
@@ -223,6 +235,7 @@ export default function Canvas({ page, image, showBoxes = true, grid = 4, scale,
   function onMove(event) {
     const drag = dragRef.current;
     if (!drag) return;
+    if (drag.pointerId !== undefined && event.pointerId !== drag.pointerId) return;
     const base = drag.origin[drag.primary];
     if (!base) return;
     const pt = pointOf(event);
@@ -345,10 +358,10 @@ export default function Canvas({ page, image, showBoxes = true, grid = 4, scale,
               ([mode, x, y]) =>
                 html`<rect
                   class=${`handle ${mode}`}
-                  x=${x - 6}
-                  y=${y - 6}
-                  width="12"
-                  height="12"
+                  x=${x - handleSize / 2}
+                  y=${y - handleSize / 2}
+                  width=${handleSize}
+                  height=${handleSize}
                   onPointerDown=${(e) => {
                     e.stopPropagation();
                     startDrag(e, [selectedItem.id], mode, selectedItem.id);
