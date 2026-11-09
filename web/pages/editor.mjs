@@ -33,6 +33,7 @@ import PageRail from '../components/page-rail.mjs';
 import PageActions from '../components/page-actions.mjs';
 import CanvasTools from '../components/canvas-tools.mjs';
 import ExportButton from '../components/export-button.mjs';
+import AppMenu from '../components/app-menu.mjs';
 import ItemForm from '../components/item-form.mjs';
 import PagePanel from '../components/page-panel.mjs';
 import { TYPES, itemType } from '../../config/manga.mjs';
@@ -815,13 +816,14 @@ export default function EditorPage({
         ? html`<${HistoryPanel} versions=${versions} current=${current} onPick=${pickVersion} />`
         : html`<${ChangesPanel} changes=${changes} onReload=${loadChanges} onAck=${confirmChanges} />`;
 
-  // 手机抽屉里的「项目」区：桌面顶栏那几个按钮搬到这里
-  const railMenu = [
-    { label: '项目列表', onClick: () => { setRailOpen(false); go('/projects'); } },
-    { label: '角色表', onClick: () => { setRailOpen(false); onOpenCharacters?.(); } },
-    { label: '项目设置', onClick: () => { setRailOpen(false); onOpenProjectSettings?.(); } },
+  // 手机右上角「⋯」里的项目级动作（桌面顶栏有同样的按钮，不显示这一组）
+  const menuItems = [
+    { label: '角色表', onClick: () => onOpenCharacters?.() },
+    { label: '项目设置', onClick: () => onOpenProjectSettings?.() },
+    { label: '项目列表', onClick: () => go('/projects') },
+    { sep: true },
     { label: theme === 'dark' ? '切到浅色' : '切到夜间模式', onClick: () => toggleTheme() },
-    { label: '设置', onClick: () => { setRailOpen(false); onOpenSettings?.(); } },
+    { label: '设置', onClick: () => onOpenSettings?.() },
   ];
 
   // 同一个动作条要挂两处（画布头 / 下格头），所以用函数生成，别复用同一个 vnode 实例
@@ -843,7 +845,6 @@ export default function EditorPage({
       pages=${pages}
       pageId=${page.id}
       open=${railOpen}
-      menu=${railMenu}
       onPick=${(id) => {
         setRailOpen(false);
         go(`/p/${projectId}/p/${id}`);
@@ -899,6 +900,7 @@ export default function EditorPage({
           placeholder=${`第 ${page.index} 页`}
           onInput=${(e) => mutate({ title: e.currentTarget.value })}
         />
+        <${AppMenu} items=${menuItems} />
         <span class="meta">${page.size[0]}×${page.size[1]} · ${page.items.length} 项 · rev ${page.rev}</span>
         ${errors.length
           ? html`<span class="tag" style="background:var(--danger);color:#fff">${errors.length} 个错误</span>`

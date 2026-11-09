@@ -20,6 +20,11 @@ export default function CanvasTools({
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const timer = useRef(null);
+  // 有鼠标才用悬停；手指上没有「移开」这回事，靠点击。
+  // 之前两边都挂，结果点一下触发词刚好是「已经悬停展开 → 再点就收」，看着像点了就消失。
+  const [hoverable] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches
+  );
 
   function clearTimer() {
     if (timer.current) clearTimeout(timer.current);
@@ -65,8 +70,8 @@ export default function CanvasTools({
       onClick=${onToggleBoxes}
     >${showBoxes ? '隐藏布局信息' : '展示布局信息'}</button>
     <span class="tools-sep"></span>
-    <div class="view-menu" onPointerEnter=${hoverOpen} onPointerLeave=${hoverClose}>
-      <button class="view-trigger" onClick=${() => setOpen((v) => !v)}>
+    <div class="view-menu" onPointerEnter=${hoverable ? hoverOpen : undefined} onPointerLeave=${hoverable ? hoverClose : undefined}>
+      <button class="view-trigger" onClick=${hoverable ? undefined : () => setOpen((v) => !v)}>
         视图<span class="caret">▾</span>
       </button>
       ${open

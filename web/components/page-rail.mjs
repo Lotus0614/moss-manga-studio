@@ -1,9 +1,10 @@
 // 页面列表。桌面上是左侧第一栏，手机上是从左上角按钮滑出的抽屉，
 // 同一个组件：`.rail` 的定位由 CSS 断点决定，`open` 只控制抽屉展开。
+// 项目级动作不在这里（在右上角「⋯」），这里只管页面本身。
 
 import { html, cls } from '../lib.mjs';
 
-export default function PageRail({ pages, pageId, open = false, menu = [], onPick, onAdd, onRemove, onOpenExport, onClose }) {
+export default function PageRail({ pages, pageId, open = false, onPick, onAdd, onRemove, onOpenExport, onClose }) {
   return html`<aside class=${cls('rail', open && 'open')}>
     <div class="rail-head">
       <span>页面</span>
@@ -32,14 +33,5 @@ export default function PageRail({ pages, pageId, open = false, menu = [], onPic
         ? html`<button class="btn sm ghost rail-export" onClick=${onOpenExport}>导出</button>`
         : null}
     </div>
-
-    ${menu.length
-      ? html`<div class="rail-project">
-          <div class="rail-project-head">项目</div>
-          ${menu.map(
-            (item) => html`<button class=${cls('rail-menu-item', item.on && 'on')} onClick=${item.onClick}>${item.label}</button>`
-          )}
-        </div>`
-      : null}
   </aside>`;
 }

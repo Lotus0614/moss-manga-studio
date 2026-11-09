@@ -1610,7 +1610,16 @@ body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
   color: var(--text);
   cursor: pointer;
 }
-.pg-entry .caret { font-size: 9px; color: var(--muted); }
+/* 用三角形画，比 9px 的 ▾ 清楚（那个在小字号下像个点） */
+.pg-entry .caret {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.5;
+  margin-left: 2px;
+}
 
 /* ---- 页面抽屉 ---- */
 .rail-count { color: var(--muted); font-size: 11px; }
@@ -1628,31 +1637,13 @@ body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
 }
 .rail-close:hover { color: var(--brand); }
 .rail-export { display: none; }
-.rail-project { display: none; }
 .rail-mask { display: none; }
-.rail-project-head {
-  padding: 2px 6px 6px;
-  font-size: 11px;
-  color: var(--muted);
-}
-.rail-menu-item {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  height: 40px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--text);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-.rail-menu-item:hover { background: var(--surface-2); }
 
 /* 动作条：画布头和下格头各挂一份，由断点决定谁可见 */
 .page-actions { display: flex; align-items: center; gap: 6px; }
+
+/* 顶栏右侧一组：必须是 flex，否则按钮会叠成三行、整块跑到顶栏外面去 */
+.topbar-actions { display: flex; align-items: center; gap: 10px; flex: none; }
 
 /* ---- 下格头（只有手机形态显示）---- */
 .panel-head {
@@ -1721,25 +1712,73 @@ body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
 /* ================================================================
    手机形态（≤720px）
    上下两格：画布 + 下格（属性 / 提示词 / 历史 / 变更，可整格收起）；
-   页序变成左上角按钮打开的抽屉；桌面那套四栏在这里整套让位。
+   页序变成左上角按钮打开的抽屉；顶栏整条不要，项目级入口在右上角「⋯」。
    ================================================================ */
+
+/* 右上角「⋯」：手机上唯一放项目级动作的地方（桌面不显示） */
+.app-menu { display: none; position: relative; flex: none; }
+.app-menu-btn {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.app-menu-btn:hover { color: var(--brand); border-color: var(--brand); }
+.app-menu-pop {
+  position: fixed;
+  top: calc(var(--sat, 0px) + 48px);
+  right: 10px;
+  z-index: 55;
+  width: 208px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+}
+.app-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 42px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.app-menu-item:hover { background: var(--surface-2); }
+.app-menu-sep { height: 1px; margin: 5px 6px; background: var(--line); }
 
 @media (max-width: 720px) {
   :root {
-    --topbar-h: 44px;
+    --topbar-h: 0px;
     --panel-h: 42dvh;
     --sab: env(safe-area-inset-bottom, 0px);
     --sat: env(safe-area-inset-top, 0px);
   }
 
-  /* 顶栏只留品牌，项目级按钮都在页面抽屉里 */
-  .topbar { padding: 0 10px; gap: 8px; padding-top: var(--sat); }
-  .topbar-actions { display: none; }
+  /* 顶栏整条不要：品牌没什么用，项目级动作全在右上角「⋯」里 */
+  .topbar { display: none; }
+  .app-menu { display: block; }
 
   .editor {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr auto;
     grid-template-areas: "work" "panelhead";
+    padding-top: var(--sat);
   }
   .editor[data-panel="props"],
   .editor[data-panel="prompt"],
@@ -1752,10 +1791,12 @@ body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
   .work { grid-area: work; }
   .panel-head { grid-area: panelhead; display: flex; }
 
-  /* 下格里的两块面板：同一格里二选一 */
+  /* 下格里的两块面板：同一格里二选一，都要铺满整个格子 */
   .wb, .inspect {
     grid-area: panelbody;
     display: none;
+    width: auto;
+    min-width: 0;
     min-height: 0;
     border: 0;
     border-top: 1px solid var(--line);
@@ -1765,7 +1806,9 @@ body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
   .editor[data-panel="prompt"] .wb,
   .editor[data-panel="history"] .wb,
   .editor[data-panel="changes"] .wb { display: flex; }
-  .wb-body, .inspect-body { padding-bottom: calc(12px + var(--sab)); }
+  .wb-body, .inspect-body { padding: 12px 12px calc(12px + var(--sab)); }
+  /* 历史卡片按固定小尺寸排：手机上两列大图一屏只看得到一张半 */
+  .wb .history-strip > .version { width: 100px; }
   /* 下格头已经有一排页签，工作台自己那排不再重复 */
   .wb-head { display: none; }
   .wb-foot { display: none; }
@@ -1773,24 +1816,49 @@ body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
   /* 抽屉是收起状态时，下格头贴屏幕底，得自己让出安全区 */
   .editor[data-panel="closed"] .panel-head { padding-bottom: var(--sab); height: calc(44px + var(--sab)); }
 
-  /* 画布头：页抽屉入口 + 标题；元信息和动作都挪到别处了。
-     右边留出任务浮窗的宽度，别让标题被压在浮窗底下。 */
-  .work-head { min-height: 40px; padding: 4px 8px; padding-right: 82px; gap: 6px; flex-wrap: nowrap; }
+  /* 画布头：页抽屉入口 + 标题 + 右上角菜单；右边留出任务浮窗的宽度 */
+  .work-head {
+    position: relative;
+    min-height: 44px;
+    padding: 4px 8px;
+    padding-right: 82px;
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
   .work-head .meta,
   .work-head .tag,
+  .work-head .spacer,
   .work-head .head-export,
   .work-head .page-actions { display: none; }
-  .work-head .page-title { flex: 1; width: auto; min-width: 0; }
-  .pg-entry { display: inline-flex; }
+  .work-head .page-title {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+    height: 32px;
+    padding: 0 2px;
+    font-size: 16px;
+    font-weight: 600;
+    border-color: transparent;
+    background: transparent;
+  }
+  .work-head .page-title:focus { border-color: var(--line); background: var(--surface); }
+  .pg-entry { display: inline-flex; height: 32px; font-size: 13px; }
 
-  /* 页序抽屉 */
+  /* 下格头：字号统一 13px，动作按钮跟页签一个节奏 */
+  .panel-tab { font-size: 13px; padding: 0 9px; }
+  .panel-actions .btn { min-height: 34px; padding: 0 12px; font-size: 13px; }
+  .panel-actions .btn.accent { background: var(--surface); border-color: var(--line); color: var(--text); }
+  .panel-actions .btn.accent:hover { background: var(--surface-2); border-color: var(--line); color: var(--text); }
+  .panel-fold { width: 32px; height: 32px; }
+
+  /* 页序抽屉：三列小缩略图，一屏能看见大半本 */
   .rail {
     position: fixed;
     left: 0;
-    top: var(--topbar-h);
+    top: 0;
     bottom: 0;
-    width: 76vw;
-    max-width: 300px;
+    width: 78vw;
+    max-width: 320px;
     z-index: 40;
     transform: translateX(-101%);
     transition: transform 0.18s ease-out;
@@ -1798,34 +1866,49 @@ body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
     border-radius: 0 var(--radius) var(--radius) 0;
     box-shadow: 4px 0 24px rgba(16, 24, 40, 0.18);
     background: var(--surface);
+    padding-top: var(--sat);
     padding-bottom: var(--sab);
   }
   .rail.open { transform: none; }
-  .rail-close { display: grid; }
+  .rail-head { height: 40px; padding: 0 12px; font-size: 13px; }
+  .rail-close { display: grid; width: 32px; height: 32px; }
+  .rail-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 10px; align-content: start; }
+  .pg { display: block; padding: 0; margin: 0; border: 1px solid transparent; border-radius: 6px; overflow: hidden; }
+  .pg .n {
+    position: absolute;
+    top: 2px;
+    left: 5px;
+    z-index: 1;
+    text-align: left;
+    font-size: 10px;
+    color: #fff;
+    text-shadow: 0 0 4px rgba(0, 0, 0, 0.85);
+  }
+  .pg .thumb { aspect-ratio: 3 / 5; border-radius: 4px; }
+  .pg.on { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+  .pg.on::before { display: none; }
+  .rail-foot { padding: 10px; gap: 8px; }
   .rail-export { display: inline-block; }
-  .rail-project { display: block; border-top: 1px solid var(--line); padding: 8px; }
-  .rail-foot { flex-wrap: wrap; }
   .rail-mask {
     display: block;
     position: fixed;
-    inset: var(--topbar-h) 0 0 0;
+    inset: 0;
     z-index: 39;
     background: rgba(0, 0, 0, 0.35);
   }
 
   /* 画布：浮层让到左边，手势接管（不然双指会去滚页面） */
   .stage { padding: 12px; touch-action: none; }
-  .canvas-tools { left: 10px; right: auto; top: 8px; padding: 3px 8px; gap: 4px; }
-  /* 手指点的：几个文字按钮撑到 30px 高 */
-  .canvas-undo { min-width: 30px; min-height: 30px; justify-content: center; padding: 0 2px; }
-  .canvas-toggle, .view-trigger { min-height: 30px; padding: 0 4px; display: inline-flex; align-items: center; }
+  .canvas-tools { left: 10px; right: auto; top: 8px; padding: 2px 8px; gap: 4px; }
+  .canvas-undo { min-width: 26px; min-height: 26px; justify-content: center; padding: 0 2px; font-size: 12px; }
+  .canvas-toggle, .view-trigger { min-height: 26px; padding: 0 4px; font-size: 12px; }
   .canvas-undo .lbl { display: none; }
   .canvas-hint { display: none; }
-  .canvas-ctrl.bottom { left: 8px; right: 8px; bottom: 10px; overflow-x: auto; }
-  .canvas-ctrl.bottom .btn { flex: none; }
+  .canvas-ctrl.bottom { left: 8px; right: 8px; bottom: 8px; gap: 6px; overflow-x: auto; }
+  .canvas-ctrl.bottom .btn { flex: none; min-height: 30px; padding: 4px 10px; font-size: 13px; }
 
-  /* 任务浮窗位置不动，但要让页抽屉盖住它 */
-  .task-dock { z-index: 38; }
+  /* 任务浮窗：顶栏没了，贴到屏幕最上面；页抽屉要能盖住它 */
+  .task-dock { top: calc(var(--sat) + 6px); z-index: 38; }
   .task-panel { width: min(384px, calc(100vw - 24px)); max-height: 50dvh; }
 
   /* 弹窗全屏 */
@@ -1860,15 +1943,14 @@ body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
   .section-title h1 { font-size: 18px; }
 }
 
-/* 手指操作：命中区放大，输入框字号到 16px（iOS 聚焦不再自动放大） */
+/* 手指操作：命中区别太小，输入框字号到 16px（iOS 聚焦不再自动放大） */
 @media (pointer: coarse) {
-  .btn { min-height: 40px; padding: 8px 12px; }
-  .btn.sm { min-height: 32px; }
-  .chip { min-height: 32px; }
-  .tab { min-height: 40px; }
-  .icon-btn { width: 40px; height: 40px; }
+  .btn { min-height: 34px; padding: 6px 12px; font-size: 13px; }
+  .btn.sm { min-height: 30px; padding: 4px 8px; }
+  .chip { min-height: 30px; }
   .input, .select, .textarea { font-size: 16px; }
-  .pg .thumb { min-height: 44px; }
+  .icon-btn { width: 40px; height: 40px; }
+  .app-menu-btn { width: 36px; height: 36px; }
 }
 
 /* 系统要求减少动画时，抽屉直接到位 */
