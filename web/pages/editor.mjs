@@ -24,7 +24,7 @@ import ItemForm from '../components/item-form.mjs';
 import { TYPES, itemType } from '../../config/manga.mjs';
 import { PromptPanel, HistoryPanel, ChangesPanel } from '../components/workbench.mjs';
 import EditModal from '../components/edit-modal.mjs';
-import { exportLongImage, exportPdf } from '../components/export.mjs';
+import { exportLongImage, exportPdf, pagesInRange } from '../components/export.mjs';
 import { compilePage } from '../../core/compile.mjs';
 import { useLivePage } from '../realtime.mjs';
 import { openDock, trackTask, useTaskForPage } from '../tasks.mjs';
@@ -88,6 +88,8 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
   const [fillAlpha, setFillAlphaState] = useState(readFillAlpha);
   const [changes, setChanges] = useState(null);
   const [showExport, setShowExport] = useState(false);
+  // 导出范围：页码，两端都含
+  const [exportRange, setExportRange] = useState({ from: 1, to: 1 });
   const [exporting, setExporting] = useState('');
   // 修图：点按钮开弹窗，弹窗里画框/涂鸦 + 写指令
   const [editOpen, setEditOpen] = useState(false);
@@ -516,9 +518,9 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
     }
   }
 
-  async function collectExportItems() {
+  async function collectExportItems(from, to) {
     const items = [];
-    for (const p of pages) {
+    for (const p of pagesInRange(pages, from, to)) {
       const data = await api(`/api/projects/${projectId}/pages/${p.id}`);
       const list = (data.versions || []).filter((v) => v.page === p.id);
       const picked = list.find((v) => v.id === data.current) || list.slice(-1)[0];
@@ -527,12 +529,31 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
     return items;
   }
 
+  /** 打开导出弹窗：范围默认整本 */
+  function openExport() {
+    const indexes = pages.map((p) => Number(p.index)).filter(Number.isFinite);
+    setExportRange({
+      from: indexes.length ? Math.min(...indexes) : 1,
+      to: indexes.length ? Math.max(...indexes) : 1,
+    });
+    setShowExport(true);
+  }
+
+  /** 导出文件名：项目名 + 页码范围，避免不同区间导出互相覆盖 */
+  function exportName(from, to) {
+    const base = project?.name || 'chapter';
+    if (from === to) return `${base} p${String(from).padStart(2, '0')}`;
+    return `${base} p${String(from).padStart(2, '0')}-p${String(to).padStart(2, '0')}`;
+  }
+
   async function doExport(kind) {
+    const from = Math.min(exportRange.from, exportRange.to);
+    const to = Math.max(exportRange.from, exportRange.to);
     setExporting(kind);
     try {
-      const items = await collectExportItems();
-      if (kind === 'long') await exportLongImage(items, project?.name || 'chapter');
-      else await exportPdf(items, project?.name || 'chapter');
+      const items = await collectExportItems(from, to);
+      if (kind === 'long') await exportLongImage(items, exportName(from, to));
+      else await exportPdf(items, exportName(from, to));
       setShowExport(false);
     } catch (err) {
       toast(err.message, 'bad');
@@ -693,7 +714,7 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
         <div class="spacer"></div>
         <div class="head-group actions">
           <button class="btn ghost" onClick=${undo} title="Ctrl+Z">撤销</button>
-          <button class="btn ghost" onClick=${() => setShowExport(true)}>导出</button>
+          <button class="btn ghost" onClick=${openExport}>导出</button>
           ${canEdit
             ? html`<button
                 class="btn accent"
@@ -840,7 +861,47 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
           <div class="modal">
             <header>导出</header>
             <div class="body">
-              <div class="hint">每页取当前采用的版本，按页码排序；没有图的页会被跳过。</div>
+              ${(() => {
+                const sorted = [...pages].sort((a, b) => a.index - b.index);
+                const picked = pagesInRange(sorted, exportRange.from, exportRange.to);
+                const withImage = picked.filter((p) => p.cover).length;
+                const missing = picked.length - withImage;
+                const optionOf = (p) => `第 ${p.index} 页${p.title ? ` · ${p.title}` : ''}`;
+                const sentence = withImage
+                  ? `将导出 ${withImage} 页${missing ? `（另外 ${missing} 页还没有图，会跳过）` : ''} · 每页取当前采用的版本`
+                  : picked.length
+                    ? '这段页码里的页面还没有图，先生成再导出'
+                    : '这个范围里没有页面';
+                return html`<div class="export-range">
+                  <div class="field">
+                    <label>起始页</label>
+                    <select
+                      class="select"
+                      value=${exportRange.from}
+                      onChange=${(e) => {
+                        const from = Number(e.currentTarget.value);
+                        setExportRange({ from, to: Math.max(from, exportRange.to) });
+                      }}
+                    >
+                      ${sorted.map((p) => html`<option value=${p.index}>${optionOf(p)}</option>`)}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>结束页</label>
+                    <select
+                      class="select"
+                      value=${exportRange.to}
+                      onChange=${(e) => {
+                        const to = Number(e.currentTarget.value);
+                        setExportRange({ from: Math.min(exportRange.from, to), to });
+                      }}
+                    >
+                      ${sorted.map((p) => html`<option value=${p.index}>${optionOf(p)}</option>`)}
+                    </select>
+                  </div>
+                </div>
+                <div class="hint">${sentence}</div>`;
+              })()}
               <button class="btn wide" disabled=${exporting === 'long'} onClick=${() => doExport('long')}>
                 ${exporting === 'long' ? '拼接中…' : '单张长图（PNG）'}
               </button>

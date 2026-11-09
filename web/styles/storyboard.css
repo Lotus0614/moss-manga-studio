@@ -1550,3 +1550,6 @@ body { background: var(--bg); }
   animation: task-spin 0.8s linear infinite;
 }
 @keyframes task-spin { to { transform: rotate(360deg); } }
+
+/* 导出弹窗：起止页两个下拉并排 */
+.export-range { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

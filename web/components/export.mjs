@@ -30,6 +30,20 @@ export function pagesWithImages(items) {
     .sort((a, b) => (a.index || 0) - (b.index || 0));
 }
 
+/**
+ * 按页码范围挑页（两端都含）。from / to 是页码，不是数组下标。
+ * 范围反了（from > to）就换成升序，缺省端用实际首尾页补。
+ */
+export function pagesInRange(pages, from, to) {
+  const list = (pages || []).filter((it) => it && Number.isFinite(Number(it.index)));
+  if (!list.length) return [];
+  const indexes = list.map((it) => Number(it.index));
+  const low = Number.isFinite(Number(from)) ? Number(from) : Math.min(...indexes);
+  const high = Number.isFinite(Number(to)) ? Number(to) : Math.max(...indexes);
+  const [start, end] = low <= high ? [low, high] : [high, low];
+  return list.filter((it) => Number(it.index) >= start && Number(it.index) <= end);
+}
+
 /** 竖向拼接成一张长图 */
 export async function exportLongImage(pages, name = 'chapter') {
   const items = pagesWithImages(pages);
