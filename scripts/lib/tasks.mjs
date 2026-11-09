@@ -15,6 +15,8 @@ export function createTasks({ emit = () => {}, limit = MAX_TASKS } = {}) {
   const waiting = [];
   let running = null;
   let seq = 0;
+  // 事件序号：客户端靠它发现「中间漏了事件」（自己的 id 计数器另有用途）
+  let eventSeq = 0;
 
   const now = () => new Date().toISOString();
 
@@ -22,8 +24,9 @@ export function createTasks({ emit = () => {}, limit = MAX_TASKS } = {}) {
   const clone = (task) => ({ ...task });
 
   function notify(task) {
+    eventSeq += 1;
     try {
-      emit('task', clone(task));
+      emit('task', { ...clone(task), seq: eventSeq });
     } catch {
       /* 订阅方出错不该把任务带崩 */
     }
@@ -119,11 +122,93 @@ export function createTasks({ emit = () => {}, limit = MAX_TASKS } = {}) {
     return task;
   }
 
+  // ---------------------------------------------------------------- 外部任务
+  // Agent / CLI 自己跑 ComfyUI，但它会「播报」：开始、心跳、结束。
+  // 这样网页在渲染的 30-40 秒里就能看到「生成中…」，而不是等出图落地才补一条。
+  // 播报是尽力而为：服务器没开，CLI 照样出图，这条路径靠文件系统兜底。
+
+  const HEARTBEAT_TIMEOUT = 30000;
+
+  /** 开始：同一个 externalId 重复调用只认一条（CLI 可能重试） */
+  function announce(meta = {}) {
+    if (meta.externalId) {
+      const exists = items.find((one) => one.externalId === meta.externalId);
+      if (exists) {
+        update(exists.id, { lastSeen: now() });
+        return clone(exists);
+      }
+    }
+    const task = add({
+      kind: 'render',
+      source: 'agent',
+      status: 'running',
+      startedAt: now(),
+      lastSeen: now(),
+      ...meta,
+    });
+    return clone(task);
+  }
+
+  /** 心跳：只更新 lastSeen，不刷别的（进度不展示，留着给排查） */
+  function beat(id, patch = {}) {
+    return update(id, { lastSeen: now(), ...patch });
+  }
+
+  function finish(id, patch = {}) {
+    const task = items.find((one) => one.id === id);
+    if (!task) return null;
+    const startedAt = task.startedAt ? new Date(task.startedAt).getTime() : Date.now();
+    return update(id, {
+      status: 'done',
+      finishedAt: now(),
+      lastSeen: now(),
+      ms: Date.now() - startedAt,
+      progress: 100,
+      ...patch,
+    });
+  }
+
+  function fail(id, error) {
+    return update(id, { status: 'error', finishedAt: now(), lastSeen: now(), error: String(error || '失败') });
+  }
+
+  /** 外部任务失去联系（CLI 崩了 / 网络断了）→ 别让浮窗永远停在「生成中…」 */
+  function sweep() {
+    const edge = Date.now() - HEARTBEAT_TIMEOUT;
+    let touched = 0;
+    for (const task of items) {
+      if (task.source !== 'agent' || task.status !== 'running') continue;
+      const seen = task.lastSeen || task.startedAt;
+      if (!seen) continue;
+      if (new Date(seen).getTime() > edge) continue;
+      update(task.id, {
+        status: 'error',
+        finishedAt: now(),
+        error: '外部任务失去联系（CLI 可能中断了）',
+      });
+      touched += 1;
+    }
+    return touched;
+  }
+
   return {
     add,
     update,
     enqueue,
+    announce,
+    beat,
+    finish,
+    fail,
+    sweep,
+    /** 最近一次事件序号（快照里带给客户端） */
+    lastSeq: () => eventSeq,
     position,
+    /** 按外部自己生成的 id 找回任务 */
+    byExternalId: (externalId) => {
+      if (!externalId) return null;
+      const task = items.find((one) => one.externalId === externalId);
+      return task ? clone(task) : null;
+    },
     get: (id) => {
       const task = items.find((one) => one.id === id);
       return task ? clone(task) : null;

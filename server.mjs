@@ -8,7 +8,7 @@
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, watch } from 'node:fs';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { extname, join, resolve, sep } from 'node:path';
 import { EventEmitter } from 'node:events';
 
@@ -125,7 +125,6 @@ async function attributeVersions(slug) {
     });
   }
 }
-
 async function flushChanges() {
   watchTimer = null;
   const items = [...pendingChanges.values()];
@@ -151,14 +150,39 @@ async function flushChanges() {
   }
 }
 
+// 监听器本身可能中途失效（Windows 递归监听缓冲区溢出会抛 error 然后静默停摆），
+// 所以：挂 error → 记日志 → 隔一会儿重建 → 重建成功让客户端整体重拉一次。
+// MOSS_NO_WATCH=1 可以彻底关掉监听（排查用；关掉后网页只能靠任务事件 + 轮询）。
+const NO_WATCH = process.env.MOSS_NO_WATCH === '1';
+let watcher = null;
+let watchRetry = null;
+
 function startArchiveWatch() {
+  if (NO_WATCH) {
+    console.error('[watch] 已按 MOSS_NO_WATCH=1 关闭文件监听');
+    return false;
+  }
   try {
-    watch(ARCHIVE, { recursive: true }, (_event, filename) => {
+    watcher = watch(ARCHIVE, { recursive: true }, (_event, filename) => {
       const hit = classifyPath(filename);
       if (!hit) return;
       pendingChanges.set(`${hit.project}|${hit.page || ''}|${hit.kind}`, hit);
       if (watchTimer) clearTimeout(watchTimer);
       watchTimer = setTimeout(flushChanges, WATCH_DEBOUNCE);
+    });
+    watcher.on('error', (err) => {
+      console.error(`[watch] 监听出错，准备重建：${err.message}`);
+      try {
+        watcher?.close();
+      } catch {
+        /* 已经废了 */
+      }
+      watcher = null;
+      if (watchRetry) return;
+      watchRetry = setTimeout(() => {
+        watchRetry = null;
+        if (startArchiveWatch()) bus.emit('resync', { reason: 'watch-restarted', at: new Date().toISOString() });
+      }, 3000);
     });
     return true;
   } catch (err) {
@@ -358,8 +382,58 @@ async function route(req, res, url) {
     const project = url.searchParams.get('project') || '';
     const limit = Math.min(200, Number(url.searchParams.get('limit')) || 50);
     const list = tasks.list(limit).filter((task) => !project || task.project === project);
-    const out = { tasks: list, active: tasks.active() };
+    const out = { tasks: list, active: tasks.active(), seq: tasks.lastSeq() };
     return json(res, 200, path === '/api/jobs' ? { ...out, jobs: out.tasks } : out);
+  }
+
+  // CLI 播报：出图开始 / 心跳 / 结束。这是「渲染中也能看到任务」的来源。
+  if (path === '/api/tasks/external' && method === 'POST') {
+    const payload = await body(req);
+    const op = String(payload.op || '');
+    const slug = safe(payload.project || '');
+    const pageId = safe(payload.page || '');
+
+    if (op === 'start') {
+      if (!slug || !pageId) return fail(res, 400, '缺少 project / page');
+      const page = await getPage(ARCHIVE, slug, pageId).catch(() => null);
+      const task = tasks.announce({
+        externalId: String(payload.externalId || ''),
+        project: slug,
+        page: pageId,
+        index: page?.index,
+        title: page?.title || '',
+        kind: payload.kind === 'edit' ? 'edit' : 'render',
+        prompt: payload.prompt ? String(payload.prompt).slice(0, 200) : undefined,
+      });
+      return json(res, 201, { id: task.id });
+    }
+
+    if (op === 'beat') {
+      const id = String(payload.id || '');
+      if (!id || !tasks.get(id)) return fail(res, 404, '任务不存在');
+      tasks.beat(id, Number.isFinite(payload.progress) ? { progress: Number(payload.progress) } : {});
+      return json(res, 200, { ok: true });
+    }
+
+    if (op === 'done') {
+      const id = String(payload.id || '');
+      if (!id || !tasks.get(id)) return fail(res, 404, '任务不存在');
+      tasks.finish(id, {
+        ...(payload.versionId ? { versionId: String(payload.versionId) } : {}),
+        ...(payload.image ? { image: String(payload.image) } : {}),
+        ...(Number.isFinite(payload.seed) ? { seed: Number(payload.seed) } : {}),
+      });
+      return json(res, 200, { ok: true });
+    }
+
+    if (op === 'fail') {
+      const id = String(payload.id || '');
+      if (!id || !tasks.get(id)) return fail(res, 404, '任务不存在');
+      tasks.fail(id, payload.error || '出图失败');
+      return json(res, 200, { ok: true });
+    }
+
+    return fail(res, 400, `不认识的 op：${op || '（空）'}`);
   }
 
   // 存档指纹：SSE 万一把事件漏了，客户端靠它发现「该刷新了」
@@ -372,15 +446,19 @@ async function route(req, res, url) {
     const stream = sse(res);
     const onTask = (task) => stream.send('task', task);
     const onArchive = (change) => stream.send('archive', change);
+    // 监听器重建之类的事会让客户端整体重拉一次
+    const onResync = (info) => stream.send('resync', info);
     bus.on('task', onTask);
     bus.on('archive', onArchive);
-    stream.send('snapshot', { tasks: tasks.list(50), active: tasks.active() });
+    bus.on('resync', onResync);
+    stream.send('snapshot', { tasks: tasks.list(50), active: tasks.active(), seq: tasks.lastSeq() });
     // 长连接别被中间层掐掉
     const ping = setInterval(() => res.write(':ping\n\n'), 15000);
     req.on('close', () => {
       clearInterval(ping);
       bus.off('task', onTask);
       bus.off('archive', onArchive);
+      bus.off('resync', onResync);
     });
     return;
   }
@@ -665,9 +743,34 @@ await ensureArchive(ARCHIVE);
 // 先记下现有版本号，之后新增的才算「外部出的图」
 await seedVersions();
 startArchiveWatch();
+
+// 外部任务的心跳看门狗：CLI 崩了别让浮窗永远停在「生成中…」
+setInterval(() => {
+  if (tasks.sweep()) bus.emit('task-dirty');
+}, 5000).unref();
+
+// CLI 靠这个文件找到预览服务器（播报出图进度用）
+const SERVER_INFO = join(ARCHIVE, 'server.json');
+async function writeServerInfo() {
+  try {
+    await writeFile(SERVER_INFO, `${JSON.stringify({ url: `http://${HOST}:${PORT}`, port: PORT, pid: process.pid, at: new Date().toISOString() }, null, 2)}\n`, 'utf8');
+  } catch (err) {
+    console.error(`[server] 写 server.json 失败（CLI 播报会退化）：${err.message}`);
+  }
+}
+async function clearServerInfo() {
+  try {
+    const info = JSON.parse(await readFile(SERVER_INFO, 'utf8'));
+    if (info?.pid === process.pid) await rm(SERVER_INFO, { force: true });
+  } catch {
+    /* 没有就算了 */
+  }
+}
+
 server.listen(PORT, HOST, async () => {
   const config = await readConfig(CONFIG_DIR);
   const state = await readState(ARCHIVE);
+  await writeServerInfo();
   console.log('');
   console.log(`  MOSS 漫画预览  http://${HOST}:${PORT}`);
   console.log(`  配置 ${CONFIG_DIR}`);
@@ -684,5 +787,9 @@ server.on('error', (err) => {
   throw err;
 });
 
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => process.exit(0)));
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    void clearServerInfo().finally(() => server.close(() => process.exit(0)));
+  });
+}
 

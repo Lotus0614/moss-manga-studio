@@ -43,6 +43,7 @@ import { listWorkflows, readWorkflow, saveWorkflow, checkWorkflow } from './lib/
 import { ComfyClient } from './lib/comfy.mjs';
 import { prepareRender, renderPage } from './lib/render.mjs';
 import { prepareEdit, fillEdit, editPage } from './lib/edit.mjs';
+import { createReporter } from './lib/reporter.mjs';
 import { compilePage } from '../core/compile.mjs';
 import { diffPage, describeOp } from './lib/diff.mjs';
 import { createItem } from '../core/manga-doc.mjs';
@@ -625,6 +626,9 @@ async function cmdRender() {
   }
 
   const started = Date.now();
+  // 预览服务器开着的话，播报一声：网页那边立刻能看到「生成中…」，而不是等出图落地
+  const reporter = await createReporter({ dir: DIR });
+  await reporter.start({ project: project.slug, page: page.id, index: page.index, title: page.title || '', kind: 'render' });
   try {
     const result = await renderPage({
       dir: DIR,
@@ -636,9 +640,15 @@ async function cmdRender() {
       opts: flags,
       onProgress: (p) => {
         if (!JSON_MODE && p?.max) process.stderr.write(`\r生成中 ${Math.round((p.value / p.max) * 100)}%   `);
+        reporter.tick(p?.max ? Math.round((p.value / p.max) * 100) : undefined);
       },
     });
     if (!JSON_MODE) process.stderr.write('\r');
+    await reporter.done({
+      versionId: result.version?.id,
+      image: result.image,
+      ...(Number.isFinite(result.seed) ? { seed: result.seed } : {}),
+    });
     const human = [
       `第 ${page.index} 页已生成（${Date.now() - started}ms）`,
       `图片：${result.image}`,
@@ -647,6 +657,7 @@ async function cmdRender() {
     ].join('\n');
     out({ ok: true, ...result }, human);
   } catch (err) {
+    await reporter.fail(err);
     return fail(err.message, 'render');
   }
 }
@@ -689,6 +700,16 @@ async function cmdEdit() {
   }
 
   const started = Date.now();
+  // 修图同样播报：网页浮窗里能看到「修图中…」，完成后结果直接落进列表
+  const reporter = await createReporter({ dir: DIR });
+  await reporter.start({
+    project: project.slug,
+    page: page.id,
+    index: page.index,
+    title: page.title || '',
+    kind: 'edit',
+    prompt: String(flags.prompt || '').slice(0, 200),
+  });
   try {
     const result = await editPage({
       dir: DIR,
@@ -700,9 +721,11 @@ async function cmdEdit() {
       opts,
       onProgress: (p) => {
         if (!JSON_MODE && p?.max) process.stderr.write(`\r修图中 ${Math.round((p.value / p.max) * 100)}%   `);
+        reporter.tick(p?.max ? Math.round((p.value / p.max) * 100) : undefined);
       },
     });
     if (!JSON_MODE) process.stderr.write('\r');
+    await reporter.done({ versionId: result.version?.id, image: result.image });
     const human = [
       `第 ${page.index} 页已修好（${Date.now() - started}ms，基于 ${result.base}）`,
       `图片：${result.image}`,
@@ -711,6 +734,7 @@ async function cmdEdit() {
     ].join('\n');
     out({ ok: true, ...result }, human);
   } catch (err) {
+    await reporter.fail(err);
     return fail(err.message, err.code || 'edit');
   }
 }

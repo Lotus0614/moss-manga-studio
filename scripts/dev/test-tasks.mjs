@@ -149,5 +149,82 @@ await test('列表按新到旧，超出上限先丢结束的', async () => {
   assert.ok(!list.some((t) => t.page === 'b'), '裁掉的是最早结束的那条');
 });
 
+await test('外部任务：announce → beat → finish 一条线走完', async () => {
+  const events = [];
+  const tasks = createTasks({ emit: (type, task) => events.push(task) });
+  const task = tasks.announce({
+    externalId: 'cli-1',
+    project: 'proj-x',
+    page: 'p02',
+    index: 2,
+    title: '第二页',
+    kind: 'render',
+  });
+  assert.equal(task.source, 'agent');
+  assert.equal(task.status, 'running');
+  assert.equal(tasks.active(), 1, '跑的时候要算进活动任务');
+
+  tasks.beat(task.id);
+  tasks.finish(task.id, { versionId: 'v010', image: '/media/proj-x/x.png' });
+  const done = tasks.get(task.id);
+  assert.equal(done.status, 'done');
+  assert.equal(done.versionId, 'v010');
+  assert.equal(tasks.active(), 0);
+
+  // 播报过的版本能被 byVersion 认领，fs 兜底就不会再记一条
+  assert.equal(tasks.byVersion('v010').id, task.id);
+  assert.ok(events.some((e) => e.status === 'running'));
+  assert.ok(events.some((e) => e.status === 'done'));
+});
+
+await test('外部任务：同一个 externalId 只建一条（CLI 重试不会刷两条）', async () => {
+  const tasks = createTasks();
+  const a = tasks.announce({ externalId: 'same', project: 'p', page: 'p01' });
+  const b = tasks.announce({ externalId: 'same', project: 'p', page: 'p01' });
+  assert.equal(a.id, b.id);
+  assert.equal(tasks.list().length, 1);
+});
+
+await test('外部任务失败要带原因', async () => {
+  const tasks = createTasks();
+  const task = tasks.announce({ externalId: 'cli-2', project: 'p', page: 'p01' });
+  tasks.fail(task.id, '连不上 ComfyUI');
+  const after = tasks.get(task.id);
+  assert.equal(after.status, 'error');
+  assert.match(after.error, /ComfyUI/);
+});
+
+await test('sweep：心跳超时的外部任务标红，网页任务不受影响', async () => {
+  const tasks = createTasks();
+  const dead = tasks.announce({ externalId: 'dead', project: 'p', page: 'p01' });
+  const web = tasks.add({ project: 'p', page: 'p02' }); // 排队中的网页任务
+  // 把 lastSeen 拨回 60 秒前
+  tasks.update(dead.id, { lastSeen: new Date(Date.now() - 60000).toISOString() });
+  const touched = tasks.sweep();
+  assert.equal(touched, 1);
+  assert.equal(tasks.get(dead.id).status, 'error');
+  assert.match(tasks.get(dead.id).error, /失去联系/);
+  assert.equal(tasks.get(web.id).status, 'queued', '网页任务不该被扫到');
+});
+
+await test('sweep：还在心跳的任务不动', async () => {
+  const tasks = createTasks();
+  const task = tasks.announce({ externalId: 'alive', project: 'p', page: 'p01' });
+  tasks.beat(task.id);
+  assert.equal(tasks.sweep(), 0);
+  assert.equal(tasks.get(task.id).status, 'running');
+});
+
+await test('事件带自增 seq，客户端能发现漏事件', async () => {
+  const seen = [];
+  const tasks = createTasks({ emit: (type, task) => seen.push(task.seq) });
+  tasks.add({ page: 'a' });
+  tasks.add({ page: 'b' });
+  const c = tasks.add({ page: 'c' });
+  tasks.update(c.id, { status: 'done' });
+  assert.deepEqual(seen, [1, 2, 3, 4]);
+  assert.equal(tasks.lastSeq(), 4);
+});
+
 console.log(`\n${passed} 通过，${failures.length} 失败`);
 if (failures.length) process.exitCode = 1;

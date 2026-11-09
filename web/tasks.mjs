@@ -25,6 +25,11 @@ const state = {
 
 const listeners = new Set();
 const archiveListeners = new Set();
+const taskListeners = new Set();
+const resyncListeners = new Set();
+
+/** 每次（重）连成功 +1：协调者看到它变就整体重拉一次 */
+let epoch = 0;
 
 function readCollapsed() {
   try {
@@ -49,6 +54,7 @@ function snapshot() {
     open: state.open,
     collapsed: state.collapsed,
     connected: state.connected,
+    epoch,
   };
 }
 
@@ -118,15 +124,24 @@ function openSource() {
     if (!task) return;
     merge(task);
     publish();
+    // 协调者（web/realtime.mjs）靠这个在「任务完成」时直接刷新页面，不等文件系统
+    for (const fn of taskListeners) fn(task);
   });
   source.addEventListener('archive', (event) => {
     const change = parse(event);
     if (!change) return;
     for (const fn of archiveListeners) fn(change);
   });
+  source.addEventListener('resync', (event) => {
+    const info = parse(event) || {};
+    epoch += 1;
+    publish();
+    for (const fn of resyncListeners) fn(info);
+  });
   source.onopen = () => {
     const reconnected = !state.connected;
     state.connected = true;
+    if (reconnected) epoch += 1;
     publish();
     // 连上（含重连）后补一次快照：断线期间完成的任务不至于漏掉
     if (reconnected) refreshTasks();
@@ -191,6 +206,18 @@ export function clearFinished() {
 export function onArchive(fn) {
   archiveListeners.add(fn);
   return () => archiveListeners.delete(fn);
+}
+
+/** 订阅任务流转（task 事件）：出图完成时用它直接刷新页面 */
+export function onTask(fn) {
+  taskListeners.add(fn);
+  return () => taskListeners.delete(fn);
+}
+
+/** 服务器要求整体重拉（比如文件监听器重建过） */
+export function onResync(fn) {
+  resyncListeners.add(fn);
+  return () => resyncListeners.delete(fn);
 }
 
 export function useTasks() {
