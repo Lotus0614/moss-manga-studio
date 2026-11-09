@@ -1,4 +1,4 @@
-// 生成队列浮窗：顶栏「任务」按钮 + 右上角浮层。
+// 生成队列：桌面是顶栏「任务」按钮 + 右上角浮层；手机上进下格「更多」里的任务页签。
 // 只负责展示，状态全在 web/tasks.mjs（服务器是唯一真相）。
 //
 // 刻意不显示百分比：那个数字本来就不可信，显示状态文字更实在。
@@ -66,8 +66,21 @@ function row(task, tasks) {
   </div>`;
 }
 
+/** 队列本体：桌面浮层和手机下格共用这一份 */
+export function TaskBody() {
+  const { tasks, connected } = useTasks();
+  return html`<div class="task-body">
+    ${connected ? null : html`<div class="task-offline">连接中断，重连中…</div>`}
+    <div class="task-list">
+      ${tasks.length
+        ? tasks.map((task) => row(task, tasks))
+        : html`<div class="task-empty">还没有任务。点「生成」，或让 Agent 出一页试试。</div>`}
+    </div>
+  </div>`;
+}
+
 export default function TaskDock() {
-  const { tasks, active, open, collapsed, connected } = useTasks();
+  const { tasks, active, open, collapsed } = useTasks();
 
   if (collapsed) {
     return html`<button
@@ -93,12 +106,7 @@ export default function TaskDock() {
             <button class="task-link" onClick=${() => clearFinished()}>清空已完成</button>
             <button class="task-link" title="收起" onClick=${() => setDockCollapsed(true)}>✕</button>
           </div>
-          ${connected ? null : html`<div class="task-offline">连接中断，重连中…</div>`}
-          <div class="task-list">
-            ${tasks.length
-              ? tasks.map((task) => row(task, tasks))
-              : html`<div class="task-empty">还没有任务。点「生成」，或让 Agent 出一页试试。</div>`}
-          </div>
+          <${TaskBody} />
         </div>`
       : null}
   </div>`;

@@ -42,7 +42,8 @@ import EditModal from '../components/edit-modal.mjs';
 import { exportLongImage, exportPdf, pagesInRange } from '../components/export.mjs';
 import { compilePage } from '../../core/compile.mjs';
 import { useLivePage } from '../realtime.mjs';
-import { openDock, trackTask, useTaskForPage } from '../tasks.mjs';
+import { clearFinished, openDock, trackTask, useTaskForPage, useTasks } from '../tasks.mjs';
+import { TaskBody } from '../components/task-dock.mjs';
 import { createItem } from '../../core/manga-doc.mjs';
 
 const STYLE_LABELS = [
@@ -138,6 +139,8 @@ export default function EditorPage({
   // 手机：下格展开 / 页面抽屉展开
   const [panelOpen, setPanelOpenState] = useState(readPanelOpen);
   const [railOpen, setRailOpen] = useState(false);
+  // 下格「更多」下拉（提示词 / 变更 / 任务）
+  const [moreOpen, setMoreOpen] = useState(false);
   const [changes, setChanges] = useState(null);
   const [showExport, setShowExport] = useState(false);
   // 导出范围：页码，两端都含
@@ -148,7 +151,11 @@ export default function EditorPage({
 
   const viewport = useViewport();
   const theme = useTheme();
+  // 任务队列（hook 要在早退之前调，别放在 if (!page) 后面）
+  const { active: activeTasks } = useTasks();
+  const pageTask = useTaskForPage(page?.id);
   const stageRef = useRef(null);
+  const moreRef = useRef(null);
   const pageRef = useRef(null);
   const saveTimer = useRef(null);
   const dirtyRef = useRef(false);
@@ -222,6 +229,23 @@ export default function EditorPage({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [railOpen]);
+
+  // 下格「更多」：点外面或 Esc 收起
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onDown = (event) => {
+      if (!moreRef.current?.contains(event.target)) setMoreOpen(false);
+    };
+    const onKey = (event) => {
+      if (event.key === 'Escape') setMoreOpen(false);
+    };
+    window.addEventListener('pointerdown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [moreOpen]);
 
   /** 项目变了（Agent 改角色表、项目设置）时也要跟上 */
   function loadProject() {
@@ -516,7 +540,8 @@ export default function EditorPage({
     try {
       const res = await apiPost(`/api/projects/${projectId}/pages/${page.id}/render`, {});
       trackTask(res.task);
-      openDock();
+      if (viewport.phone) showTasks();
+      else openDock();
       toast(`已提交生成任务 · 第 ${page.index} 页`);
     } catch (err) {
       toast(err.message, 'bad');
@@ -532,7 +557,8 @@ export default function EditorPage({
         ...(overlay ? { overlay, marks } : {}),
       });
       trackTask(res.task);
-      openDock();
+      if (viewport.phone) showTasks();
+      else openDock();
       setEditOpen(false);
       toast(`已提交修图任务 · 第 ${page.index} 页`);
     } catch (err) {
@@ -708,8 +734,6 @@ export default function EditorPage({
   const selected = selection ? page.items.find((it) => it.id === selection.id) : null;
   const version = versions.find((v) => v.id === current) || versions.slice(-1)[0];
   const image = version?.image || '';
-  // 本页的生成状态由任务队列决定（store 里是服务器镜像）
-  const pageTask = useTaskForPage(page?.id);
   const generating = Boolean(pageTask && (pageTask.status === 'queued' || pageTask.status === 'running'));
   const editing = Boolean(generating && pageTask.kind === 'edit');
   const queuedHere = Boolean(generating && pageTask.status === 'queued');
@@ -776,15 +800,26 @@ export default function EditorPage({
   })();
 
   // ------------------------------------------------ 工作台（提示词 / 历史 / 变更）
-  // 桌面上是左侧一栏，手机上变成下格的 tab；「属性」只有手机下格有。
+  // 桌面上是左侧一栏；手机上是下格：面板 / 历史 常驻，提示词 / 变更 / 任务 收进「更多」。
   const TABS = [
     ['prompt', '提示词'],
     ['history', '历史'],
     ['changes', '变更'],
   ];
-  const PANEL_TABS = [['props', '属性'], ...TABS];
-  // 桌面工作台不认「属性」：万一从手机切过来停在 props，就退回提示词
+  // 下格常驻的两个
+  const PINNED_TABS = [
+    ['props', '面板'],
+    ['history', '历史'],
+  ];
+  // 收进「更多」的（桌面工作台不认 props / tasks，遇到就退回提示词）
+  const MORE_TABS = [
+    ['prompt', '提示词'],
+    ['changes', '变更'],
+    ['tasks', '任务'],
+  ];
+  // 桌面工作台没有「面板」这一页；「任务」在桌面上也能直接显示（左栏会自己带一个标题行）
   const wbTab = tab === 'props' ? 'prompt' : tab;
+  const moreActive = MORE_TABS.some(([key]) => key === tab);
 
   function tabBadge(key) {
     if (key === 'prompt') {
@@ -793,6 +828,7 @@ export default function EditorPage({
       return null;
     }
     if (key === 'history') return html`<span class="badge warn">${versions.length}</span>`;
+    if (key === 'tasks') return activeTasks ? html`<span class="badge">${activeTasks}</span>` : null;
     return null;
   }
 
@@ -809,12 +845,28 @@ export default function EditorPage({
     if (key === 'changes') loadChanges();
   }
 
+  /** 手机上提完任务，直接翻到「更多 › 任务」那一页，别再飘一个浮窗 */
+  function showTasks() {
+    setTab('tasks');
+    setPanelOpen(true);
+  }
+
   const workbenchBody =
-    wbTab === 'prompt'
-      ? html`<${PromptPanel} compiled=${compiled} warnings=${warnings} />`
-      : wbTab === 'history'
-        ? html`<${HistoryPanel} versions=${versions} current=${current} onPick=${pickVersion} />`
-        : html`<${ChangesPanel} changes=${changes} onReload=${loadChanges} onAck=${confirmChanges} />`;
+    wbTab === 'tasks'
+      ? html`<div class="task-body">
+          <div class="task-body-head">
+            <span>生成队列</span>
+            ${activeTasks ? html`<span class="task-count">${activeTasks} 个在跑</span>` : null}
+            <div class="spacer"></div>
+            <button class="task-link" onClick=${() => clearFinished()}>清空已完成</button>
+          </div>
+          <${TaskBody} />
+        </div>`
+      : wbTab === 'prompt'
+        ? html`<${PromptPanel} compiled=${compiled} warnings=${warnings} />`
+        : wbTab === 'history'
+          ? html`<${HistoryPanel} versions=${versions} current=${current} onPick=${pickVersion} />`
+          : html`<${ChangesPanel} changes=${changes} onReload=${loadChanges} onAck=${confirmChanges} />`;
 
   // 手机右上角「⋯」里的项目级动作（桌面顶栏有同样的按钮，不显示这一组）
   const menuItems = [
@@ -1013,11 +1065,37 @@ export default function EditorPage({
 
     <div class="panel-head">
       <div class="panel-tabs">
-        ${PANEL_TABS.map(
+        ${PINNED_TABS.map(
           ([key, label]) => html`<button class=${cls('panel-tab', tab === key && 'on')} key=${key} onClick=${() => openPanelTab(key)}>
             ${key === 'props' && selected ? itemType(selected.type)?.label || label : label}${tabBadge(key)}
           </button>`
         )}
+        <div class="panel-more-wrap" ref=${moreRef}>
+          <button
+            class=${cls('panel-tab panel-more', moreActive && 'on')}
+            title="提示词 / 变更 / 任务"
+            onClick=${() => setMoreOpen(!moreOpen)}
+          >
+            ${moreActive ? MORE_TABS.find(([key]) => key === tab)?.[1] : '更多'}<span class="caret">▾</span>
+            ${tabBadge('prompt')}
+          </button>
+          ${moreOpen
+            ? html`<div class="panel-more-pop">
+                ${MORE_TABS.map(
+                  ([key, label]) => html`<button
+                    class=${cls('panel-more-item', tab === key && 'on')}
+                    key=${key}
+                    onClick=${() => {
+                      setMoreOpen(false);
+                      openPanelTab(key);
+                    }}
+                  >
+                    <span>${label}</span>${tabBadge(key)}
+                  </button>`
+                )}
+              </div>`
+            : null}
+        </div>
       </div>
       <div class="panel-actions">
         ${actions()}
