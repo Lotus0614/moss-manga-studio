@@ -387,10 +387,11 @@ export default function EditorPage({
   }
 
   // ---- 修改与历史
+  // 注意：入历史栈 ≠ 有未保存的改动。只是点一下框（没拖动）也会走 onBegin，
+  // 这里要是把 dirty 置上，外部改动就会被「等保存」挡住，直到超时都刷不出来。
   function snapshot() {
     const cur = pageRef.current;
     if (!cur) return;
-    dirtyRef.current = true;
     const json = JSON.stringify(cur);
     if (history.current[history.current.length - 1] === json) return;
     history.current.push(json);
@@ -413,6 +414,8 @@ export default function EditorPage({
     if (pinchGuard.current) return;
     const cur = pageRef.current;
     if (!cur || !list?.length) return;
+    // 真的动了才算有未保存的改动（拖动结束会立刻保存）
+    dirtyRef.current = true;
     const map = new Map(list.map((one) => [one.id, one.bbox]));
     const next = { ...cur, items: cur.items.map((it) => (map.has(it.id) ? { ...it, bbox: map.get(it.id) } : it)) };
     pageRef.current = next;
