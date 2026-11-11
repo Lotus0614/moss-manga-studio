@@ -68,111 +68,77 @@ export async function exportLongImage(pages, name = 'chapter') {
   return { width, height, pages: images.length };
 }
 
-/** 每页一张的 PDF，用 JPEG + DCTDecode 直接嵌，不压缩图片 */
-export async function exportPdf(pages, name = 'chapter') {
+/** 每页一张的 PDF。密码可选；给了就用 PDF 标准安全处理器加密。 */
+export async function exportPdf(pages, name = 'chapter', { password = '' } = {}) {
   const items = pagesWithImages(pages);
   if (!items.length) throw new Error('还没有生成任何图片');
-  const images = await Promise.all(items.map((it) => loadImage(it.image)));
-
-  const jpegs = [];
-  for (const img of images) {
+  const jsPDF = await loadJsPdf();
+  const images = [];
+  for (const it of items) {
+    const img = await loadImage(it.image);
     const canvas = document.createElement('canvas');
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
     canvas.getContext('2d').drawImage(img, 0, 0);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.94));
-    jpegs.push({
-      bytes: new Uint8Array(await blob.arrayBuffer()),
-      width: img.naturalWidth,
-      height: img.naturalHeight,
-    });
+    images.push({ data: canvas.toDataURL('image/jpeg', 0.94), width: img.naturalWidth, height: img.naturalHeight });
   }
+  const bytes = buildPdfJs(jsPDF, images, { title: name, password: password.trim() });
+  download(new Blob([bytes], { type: 'application/pdf' }), `${name}.pdf`);
+  return { pages: images.length, encrypted: Boolean(password.trim()) };
+}
 
-  const pdf = buildPdf(jpegs, name);
-  download(new Blob([pdf], { type: 'application/pdf' }), `${name}.pdf`);
-  return { pages: jpegs.length };
+// ---------------------------------------------------------------- PDF（jsPDF）
+// PDF 交给 jsPDF：一份自包含的 UMD 包，只在真正导出 PDF 时才拉，平时不影响首屏。
+// jsPDF 的加密是 PDF 标准安全处理器 V1/R2（RC4 40 位）——能挡住随手打开，
+// 挡不住有意破解，这个限制在导出弹窗里也写明了。
+
+let jsPdfLoader = null;
+
+/** 懒加载 jsPDF，返回 jsPDF 构造函数 */
+export function loadJsPdf() {
+  if (globalThis.jspdf?.jsPDF) return Promise.resolve(globalThis.jspdf.jsPDF);
+  if (jsPdfLoader) return jsPdfLoader;
+  jsPdfLoader = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = '/vendor/jspdf.umd.min.js';
+    script.async = true;
+    script.onload = () => {
+      const ctor = globalThis.jspdf?.jsPDF;
+      if (ctor) resolve(ctor);
+      else reject(new Error('jsPDF 加载完成但没挂上全局，看看 web/vendor/jspdf.umd.min.js'));
+    };
+    script.onerror = () => {
+      jsPdfLoader = null; // 允许下次重试
+      reject(new Error('jsPDF 加载失败：/vendor/jspdf.umd.min.js'));
+    };
+    document.head.appendChild(script);
+  });
+  return jsPdfLoader;
 }
 
 /**
- * 最小可用的 PDF 生成器：一页一张图，DCTDecode 直嵌 JPEG。
- * 对象编号：1 catalog、2 pages，之后每页依次是 page / content / image。
- * 导出出来是为了能在 Node 里单测结构（见 tools/test-export.mjs）。
+ * 纯函数：给一个 jsPDF 构造函数和已编码的图片，产出 PDF 字节。
+ * 拆出来是为了能在 Node 里单测（tools/test-export.mjs），不碰 canvas / DOM。
+ * images: [{ data: 'data:image/jpeg;base64,...', width, height }]
  */
-export function buildPdf(jpegs, title) {
-  const enc = new TextEncoder();
-  const chunks = [];
-  let size = 0;
-  const push = (data) => {
-    const bytes = typeof data === 'string' ? enc.encode(data) : data;
-    chunks.push(bytes);
-    size += bytes.length;
-    return bytes.length;
-  };
-  const offsets = [];
-
-  const pageObj = (i) => 3 + i * 3;
-  const contentObj = (i) => 4 + i * 3;
-  const imageObj = (i) => 5 + i * 3;
-
-  push('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
-
-  const beginObj = (num) => {
-    offsets[num] = size;
-    push(`${num} 0 obj\n`);
-  };
-  const endObj = () => push('endobj\n');
-
-  beginObj(1);
-  push('<< /Type /Catalog /Pages 2 0 R >>\n');
-  endObj();
-
-  beginObj(2);
-  const kids = jpegs.map((_, i) => `${pageObj(i)} 0 R`).join(' ');
-  push(`<< /Type /Pages /Kids [${kids}] /Count ${jpegs.length} >>\n`);
-  endObj();
-
-  jpegs.forEach((jpg, i) => {
-    beginObj(pageObj(i));
-    push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${jpg.width} ${jpg.height}] ` +
-        `/Resources << /XObject << /Im0 ${imageObj(i)} 0 R >> >> /Contents ${contentObj(i)} 0 R >>\n`
-    );
-    endObj();
-
-    const stream = `q ${jpg.width} 0 0 ${jpg.height} 0 0 cm /Im0 Do Q`;
-    beginObj(contentObj(i));
-    push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream\n`);
-    endObj();
-
-    beginObj(imageObj(i));
-    push(
-      `<< /Type /XObject /Subtype /Image /Width ${jpg.width} /Height ${jpg.height} ` +
-        `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.bytes.length} >>\nstream\n`
-    );
-    push(jpg.bytes);
-    push('\nendstream\n');
-    endObj();
+export function buildPdfJs(jsPDF, images, { title = '', password = '' } = {}) {
+  if (!images?.length) throw new Error('没有可导出的页面');
+  if (password && /[^\x20-\x7E]/.test(password)) {
+    // jsPDF 把口令当字节串处理，中文会算出错误的密钥，打开时直接报密码错
+    throw new Error('PDF 密码只能用英文、数字和符号');
+  }
+  const first = images[0];
+  const doc = new jsPDF({
+    unit: 'pt',
+    format: [first.width, first.height],
+    ...(password
+      ? { encryption: { userPassword: password, ownerPassword: password, userPermissions: ['print'] } }
+      : {}),
   });
-
-  const total = offsets.length;
-  const xrefStart = size;
-  push(`xref\n0 ${total}\n`);
-  push('0000000000 65535 f \n');
-  for (let i = 1; i < total; i += 1) {
-    push(`${String(offsets[i] || 0).padStart(10, '0')} 00000 n \n`);
-  }
-  push(`trailer\n<< /Size ${total} /Root 1 0 R /Info << /Title (${escapePdfText(title)}) >> >>\n`);
-  push(`startxref\n${xrefStart}\n%%EOF\n`);
-
-  const out = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return out;
-}
-
-function escapePdfText(text) {
-  return String(text || '').replace(/[\\()]/g, (m) => `\\${m}`).slice(0, 120);
+  if (title) doc.setProperties({ title });
+  images.forEach((image, index) => {
+    if (index > 0) doc.addPage([image.width, image.height]);
+    doc.addImage(image.data, 'JPEG', 0, 0, image.width, image.height);
+  });
+  return new Uint8Array(doc.output('arraybuffer'));
 }

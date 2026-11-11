@@ -90,7 +90,10 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
   const [showExport, setShowExport] = useState(false);
   // 导出范围：页码，两端都含
   const [exportRange, setExportRange] = useState({ from: 1, to: 1 });
-  const [exporting, setExporting] = useState('');
+  const [exporting, setExporting] = useState(false);
+  // 导出形式：长图 PNG / 每页一张 PDF；PDF 才有密码，密码只在内存里
+  const [exportKind, setExportKind] = useState('pdf');
+  const [exportPassword, setExportPassword] = useState('');
   // 修图：点按钮开弹窗，弹窗里画框/涂鸦 + 写指令
   const [editOpen, setEditOpen] = useState(false);
 
@@ -546,19 +549,20 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
     return `${base} p${String(from).padStart(2, '0')}-p${String(to).padStart(2, '0')}`;
   }
 
-  async function doExport(kind) {
+  /** 导出：按弹窗里选的格式和页码走，PDF 才带密码 */
+  async function doExport() {
     const from = Math.min(exportRange.from, exportRange.to);
     const to = Math.max(exportRange.from, exportRange.to);
-    setExporting(kind);
+    setExporting(true);
     try {
       const items = await collectExportItems(from, to);
-      if (kind === 'long') await exportLongImage(items, exportName(from, to));
-      else await exportPdf(items, exportName(from, to));
+      if (exportKind === 'long') await exportLongImage(items, exportName(from, to));
+      else await exportPdf(items, exportName(from, to), { password: exportPassword });
       setShowExport(false);
     } catch (err) {
       toast(err.message, 'bad');
     } finally {
-      setExporting('');
+      setExporting(false);
     }
   }
 
@@ -645,6 +649,17 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
       : tab === 'history'
         ? html`<${HistoryPanel} versions=${versions} current=${current} onPick=${pickVersion} />`
         : html`<${ChangesPanel} changes=${changes} onReload=${loadChanges} onAck=${confirmChanges} />`;
+
+  // 导出弹窗用的一行摘要：选了多少页、有没有没图会被跳过
+  const exportSorted = [...pages].sort((a, b) => a.index - b.index);
+  const exportPicked = pagesInRange(exportSorted, exportRange.from, exportRange.to);
+  const exportWithImage = exportPicked.filter((p) => p.cover).length;
+  const exportMissing = exportPicked.length - exportWithImage;
+  const exportSummary = exportWithImage
+    ? `将导出 ${exportWithImage} 页${exportMissing ? `（${exportMissing} 页还没图，会跳过）` : ''}`
+    : exportPicked.length
+      ? '这段页码里还没有图'
+      : '这个范围里没有页面';
 
   return html`<div class="editor">
     <aside class="rail">
@@ -857,59 +872,69 @@ export default function EditorPage({ projectId, pageId, config, onOpenSettings }
     </aside>
 
     ${showExport
-      ? html`<div class="modal-mask" onClick=${(e) => e.target === e.currentTarget && setShowExport(false)}>
-          <div class="modal">
+      ? html`<div class="modal-mask" onClick=${(e) => e.target === e.currentTarget && !exporting && setShowExport(false)}>
+          <div class="modal export-modal">
             <header>导出</header>
             <div class="body">
-              ${(() => {
-                const sorted = [...pages].sort((a, b) => a.index - b.index);
-                const picked = pagesInRange(sorted, exportRange.from, exportRange.to);
-                const withImage = picked.filter((p) => p.cover).length;
-                const missing = picked.length - withImage;
-                const optionOf = (p) => `第 ${p.index} 页${p.title ? ` · ${p.title}` : ''}`;
-                const sentence = withImage
-                  ? `将导出 ${withImage} 页${missing ? `（另外 ${missing} 页还没有图，会跳过）` : ''} · 每页取当前采用的版本`
-                  : picked.length
-                    ? '这段页码里的页面还没有图，先生成再导出'
-                    : '这个范围里没有页面';
-                return html`<div class="export-range">
-                  <div class="field">
-                    <label>起始页</label>
-                    <select
-                      class="select"
-                      value=${exportRange.from}
-                      onChange=${(e) => {
-                        const from = Number(e.currentTarget.value);
-                        setExportRange({ from, to: Math.max(from, exportRange.to) });
-                      }}
-                    >
-                      ${sorted.map((p) => html`<option value=${p.index}>${optionOf(p)}</option>`)}
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label>结束页</label>
-                    <select
-                      class="select"
-                      value=${exportRange.to}
-                      onChange=${(e) => {
-                        const to = Number(e.currentTarget.value);
-                        setExportRange({ from: Math.min(exportRange.from, to), to });
-                      }}
-                    >
-                      ${sorted.map((p) => html`<option value=${p.index}>${optionOf(p)}</option>`)}
-                    </select>
-                  </div>
+              <div class="export-range">
+                <div class="field">
+                  <label>起始页</label>
+                  <select
+                    class="select"
+                    value=${exportRange.from}
+                    onChange=${(e) => {
+                      const from = Number(e.currentTarget.value);
+                      setExportRange({ from, to: Math.max(from, exportRange.to) });
+                    }}
+                  >
+                    ${exportSorted.map((p) => html`<option value=${p.index}>${`第 ${p.index} 页${p.title ? ` · ${p.title}` : ''}`}</option>`)}
+                  </select>
                 </div>
-                <div class="hint">${sentence}</div>`;
-              })()}
-              <button class="btn wide" disabled=${exporting === 'long'} onClick=${() => doExport('long')}>
-                ${exporting === 'long' ? '拼接中…' : '单张长图（PNG）'}
-              </button>
-              <button class="btn wide" disabled=${exporting === 'pdf'} onClick=${() => doExport('pdf')}>
-                ${exporting === 'pdf' ? '生成中…' : 'PDF（每页一张）'}
-              </button>
+                <div class="field">
+                  <label>结束页</label>
+                  <select
+                    class="select"
+                    value=${exportRange.to}
+                    onChange=${(e) => {
+                      const to = Number(e.currentTarget.value);
+                      setExportRange({ from: Math.min(exportRange.from, to), to });
+                    }}
+                  >
+                    ${exportSorted.map((p) => html`<option value=${p.index}>${`第 ${p.index} 页${p.title ? ` · ${p.title}` : ''}`}</option>`)}
+                  </select>
+                </div>
+              </div>
+
+              <div class="field">
+                <label>导出方式</label>
+                <div class="seg">
+                  <button class=${cls('seg-item', exportKind === 'pdf' && 'on')} onClick=${() => setExportKind('pdf')}>PDF 每页一张</button>
+                  <button class=${cls('seg-item', exportKind === 'long' && 'on')} onClick=${() => setExportKind('long')}>单张长图 PNG</button>
+                </div>
+              </div>
+
+              ${exportKind === 'pdf'
+                ? html`<div class="field">
+                    <label>打开密码（可留空）</label>
+                    <input
+                      class="input"
+                      type="password"
+                      autocomplete="new-password"
+                      value=${exportPassword}
+                      placeholder="留空 = 不加密"
+                      onInput=${(e) => setExportPassword(e.currentTarget.value)}
+                    />
+                  </div>`
+                : null}
+
+              <div class="hint">${exportSummary}</div>
             </div>
-            <footer><button class="btn ghost" onClick=${() => setShowExport(false)}>关闭</button></footer>
+            <footer>
+              <button class="btn ghost" disabled=${exporting} onClick=${() => setShowExport(false)}>取消</button>
+              <button class="btn inv" disabled=${exporting || !exportWithImage} onClick=${() => doExport()}>
+                ${exporting ? '导出中…' : '导出'}
+              </button>
+            </footer>
           </div>
         </div>`
       : null}

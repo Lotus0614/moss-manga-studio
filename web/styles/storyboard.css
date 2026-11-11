@@ -1551,5 +1551,25 @@ body { background: var(--bg); }
 }
 @keyframes task-spin { to { transform: rotate(360deg); } }
 
-/* 导出弹窗：起止页两个下拉并排 */
+/* 导出弹窗：一个表单——选页码、选方式、（PDF 才要）密码、确认 */
 .export-range { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.export-modal .body { gap: 14px; }
+.seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.seg-item {
+  height: 34px;
+  border: 0;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.seg-item + .seg-item { border-left: 1px solid var(--line); }
+.seg-item:hover { color: var(--text); background: var(--surface-2); }
+.seg-item.on { background: var(--brand); color: var(--brand-ink); font-weight: 600; }
+.seg-item.on:hover { background: var(--brand); color: var(--brand-ink); }
