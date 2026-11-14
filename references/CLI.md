@@ -16,23 +16,44 @@
 ## doctor
 
 ```bash
-manga doctor [--json]
+manga doctor [--json] [--fresh] [--no-update]
 ```
 
 ```json
 {
   "configured": true,
+  "version": "2.0.0",
   "archive": "C:\\Users\\me\\.moss-manga",
   "comfy": { "url": "http://127.0.0.1:8188", "reachable": true, "version": "0.3.x", "checkpoints": 14, "loras": 30 },
   "workflow": { "name": "default.json", "ok": true, "params": ["prompt", "seed", "width", "height", "steps", "cfg", "ckpt"] },
   "edit": { "name": "edit.json", "ok": true, "params": ["image", "prompt"], "missing": [] },
   "ckpt": "moss_v1.safetensors",
   "projects": 2,
+  "update": {
+    "state": "ok",
+    "current": "2.1.0",
+    "latest": "2.2.0",
+    "hasUpdate": true,
+    "via": "https://gh-proxy.com/https://raw.githubusercontent.com/Lotus0614/moss-manga-studio/main/package.json"
+  },
   "problems": []
 }
 ```
 
 `configured` 为 false 时看 `problems`，一条一条解决。`edit` 是修图工作流：没配就一直是 `{"name": ""}`，不算问题；配了但文件缺失或缺 `{{prompt}}`/`{{image}}` 才算问题。
+
+`update` 是**只读**的版本自查：拉一次远端仓库的 `package.json`，只比 `version` 那一行，不跑 git、不碰工作区。人话就一行：
+
+| 输出 | 意思 |
+|---|---|
+| `版本：2.1.0 · 已是最新` | 没事 |
+| `版本：2.1.0 · ⚠ 当前有新版本（2.2.0）！推荐先询问用户是否更新到最新` | 有新版 |
+| `版本：2.1.0 · 更新：查不了（超时）` | 连不上，跳过，不算故障 |
+
+`state`：`ok`（看 `hasUpdate`）／`offline`（连不上）／`http`（404、限流、返回不是 JSON）／`skipped`（加了 `--no-update`）。
+查不了不影响 `configured`，也不改退出码；结果缓存 30 分钟（查不了缓存 5 分钟），`--fresh` 强制重查。
+地址先走 gh-proxy 前缀、再兜底直连 GitHub，可以写一个或一组（`config set update.url=...`）。
+有新版时由人和 agent 决定要不要更新，流程见 `AGENTS.md`「8. 更新」；CLI 不会自己 pull。
 
 ---
 

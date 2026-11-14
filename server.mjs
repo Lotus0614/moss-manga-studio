@@ -7,7 +7,7 @@
 
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, watch } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, watch } from 'node:fs';
 import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { extname, join, resolve, sep } from 'node:path';
 import { EventEmitter } from 'node:events';
@@ -48,6 +48,14 @@ const CONFIG = await readConfig(CONFIG_DIR);
 const ARCHIVE = resolveArchiveDir(CONFIG, process.env.MOSS_ARCHIVE);
 const WEB = resolve(import.meta.dirname, 'web');
 const CORE = resolve(import.meta.dirname, 'core');
+// 版本号只在 package.json 里写一次，/api/health 跟着它走
+const VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 const bus = new EventEmitter();
 bus.setMaxListeners(32);
@@ -316,7 +324,7 @@ async function route(req, res, url) {
   const path = decodeURIComponent(url.pathname);
   const method = req.method;
 
-  if (path === '/api/health') return json(res, 200, { ok: true, archive: ARCHIVE, version: '2.0.0' });
+  if (path === '/api/health') return json(res, 200, { ok: true, archive: ARCHIVE, version: VERSION });
 
   if (path === '/api/config') {
     if (method === 'GET') return json(res, 200, await readConfig(CONFIG_DIR));

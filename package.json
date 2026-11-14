@@ -1,6 +1,6 @@
 {
   "name": "moss-manga-studio",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "description": "MOSS 漫画技能：CLI + 预览编辑器，为 Agent 生成漫画分镜而设计",
@@ -10,7 +10,7 @@
   "scripts": {
     "manga": "node scripts/manga.mjs",
     "serve": "node server.mjs",
-    "test": "node core/self-test.mjs && node tools/test-export.mjs && node scripts/dev/test-archive.mjs && node scripts/dev/test-edit.mjs",
+    "test": "node core/self-test.mjs && node tools/test-export.mjs && node tools/test-update.mjs && node scripts/dev/test-archive.mjs && node scripts/dev/test-edit.mjs",
     "check": "node tools/check.mjs",
     "vendor": "node tools/vendor.mjs"
   }

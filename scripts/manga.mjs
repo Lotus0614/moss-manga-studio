@@ -8,11 +8,12 @@
 
 import { spawn } from 'node:child_process';
 import { readFile, writeFile, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  ROOT,
   resolveConfigDir,
   resolveArchiveDir,
   ensureConfig,
@@ -44,6 +45,7 @@ import { ComfyClient } from './lib/comfy.mjs';
 import { prepareRender, renderPage } from './lib/render.mjs';
 import { prepareEdit, fillEdit, editPage } from './lib/edit.mjs';
 import { createReporter } from './lib/reporter.mjs';
+import { checkUpdate, describeUpdate } from './lib/update.mjs';
 import { compilePage } from '../core/compile.mjs';
 import { diffPage, describeOp } from './lib/diff.mjs';
 import { createItem } from '../core/manga-doc.mjs';
@@ -52,7 +54,14 @@ import { pageOutline, projectOutline, warningsText, table, diffText } from './li
 
 const HERE = import.meta.dirname;
 const SERVER = resolve(HERE, '..', 'server.mjs');
-const VERSION = '2.0.0';
+// 版本号只在 package.json 里写一次：更新检查就是拿它跟远端的 package.json 比
+const VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(join(HERE, '..', 'package.json'), 'utf8')).version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 // ---------------------------------------------------------------- 参数解析
 
@@ -142,6 +151,7 @@ async function cmdDoctor() {
     edit: { name: '', ok: false, params: [], missing: [] },
     ckpt: '',
     projects: 0,
+    update: null,
     problems: [],
   };
 
@@ -229,6 +239,18 @@ async function cmdDoctor() {
   if (!archiveExists) result.problems.push(`存档还没建立：${DIR}（运行 manga init 会自动建）`);
   result.configured = result.comfy.reachable && Boolean(result.workflow.name) && result.workflow.ok && result.problems.length === 0;
 
+  // 看一眼有没有新版本：拉远端 package.json 跟本地版本号比。
+  // 连不上只是跳过，不算问题、不改退出码；更新本身交给人和 agent（AGENTS.md「8. 更新」）。
+  const update = await checkUpdate({
+    root: ROOT,
+    current: VERSION,
+    url: config.update?.url,
+    skip: Boolean(flags['no-update']),
+    fresh: Boolean(flags.fresh),
+    timeoutMs: config.update?.timeoutMs,
+  });
+  result.update = update;
+
   out(
     result,
     [
@@ -239,6 +261,7 @@ async function cmdDoctor() {
       `修图：${config.edit?.name ? `${result.edit.name} ${result.edit.ok ? '✓' : '✗ 缺占位符'}` : '（未配置，网页不显示修图按钮）'}`,
       `检查点：${result.ckpt || '（不需要）'}`,
       `项目：${projects.length} 个`,
+      ...describeUpdate(update, { version: VERSION }),
       result.configured ? '状态：已配置，可以直接开始画' : `状况：${result.problems.length} 个问题`,
       ...result.problems.map((p) => `  - ${p}`),
     ].join('\n')
@@ -852,7 +875,8 @@ function cmdHelp() {
   process.stdout.write(`moss-manga CLI v${VERSION}
 
   配置
-    manga doctor                          检查配置、ComfyUI、工作流
+    manga doctor                          检查配置、ComfyUI、工作流、有没有新版本
+                                          （--fresh 强制重查，--no-update 不联网）
     manga init [--comfy URL] [--ckpt NAME] [--workflow FILE] [--archive DIR]
     manga config get [键] | config set 键=值 ...
     manga workflow path                   打印工作流该放哪（配置根）

@@ -1,4 +1,5 @@
 node_modules/
+.cache/
 data/
 config/config.json
 config/workflows

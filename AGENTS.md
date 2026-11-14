@@ -54,6 +54,9 @@ JSON，`render` 发给 ComfyUI 出图；出完可以在网页里拖、在历史�
 
 开工前确认两样东西能跑：`node manga.mjs doctor`（ComfyUI 通不通，未配置就转 `INSTALL.md`）和网页。
 
+`doctor` 还会顺手看一眼有没有新版本（只读，不改任何文件）。输出里出现 `⚠ 当前有新版本` 就先问用户，
+按最后一节「8. 更新」做——别自己闷头 `git pull`。
+
 **网页没起来就别开始构思。**启动命令是幂等的，已经在跑会直接告诉你地址：
 
 ```bash
@@ -154,7 +157,7 @@ node manga.mjs edit --page 1 --prompt "把左上角气泡的尾巴删掉"
 ## 6. 常用命令
 
 ```bash
-node manga.mjs doctor                                # 检查配置与 ComfyUI 连通性
+node manga.mjs doctor                                # 检查配置、ComfyUI、有没有新版本
 node manga.mjs project list
 node manga.mjs page list
 node manga.mjs page show --page 1 --summary          # 紧凑大纲，给 AI 看用这个
@@ -180,3 +183,46 @@ node manga.mjs stop
 | 成人向画面怎么排、tag 怎么写 | `R18-MANGA.md` |
 | 连不上 ComfyUI、渲染报错 | `CLI.md`「doctor」+ `WORKFLOW.md`「报错对照」 |
 | 没装好 | `INSTALL.md` |
+
+## 8. 更新
+
+`doctor` 最后一行会报版本，顺手去 GitHub 拉一次 `package.json` 跟本地比（只读，不改任何文件）：
+
+| 输出 | 意思 |
+|---|---|
+| `版本：2.1.0 · 已是最新` | 没事 |
+| `版本：2.1.0 · ⚠ 当前有新版本（2.2.0）！推荐先询问用户是否更新到最新` | 去问用户 |
+| `版本：2.1.0 · 更新：查不了（超时）` | 连不上 GitHub，跳过就行，不算故障 |
+
+看到 `⚠` 时**先问用户，别自己直接 pull。**
+
+> 有新版本（2.1.0 → 2.2.0），要现在更新吗？
+
+用户同意后按顺序做，一步都别跳：
+
+```bash
+git status --short          # 有改动先把文件名摊给用户看
+git pull --ff-only
+node manga.mjs stop
+node manga.mjs serve --port 5123
+node tools/check.mjs
+npm test
+```
+
+- **`git pull --ff-only` 失败或有冲突 → 立刻停手**，把文件和报错贴给用户，让他决定怎么合。
+  禁止 `git reset --hard`、`git checkout --force`、`git stash` 掉他的改动
+- 有本地改动（尤其 `config/manga.mjs` 是你让他随便改的那个）就先问他：提交、还是先放着不更新
+- 拉完必须**重启服务**（旧代码还在内存里），再跑 `check` + `test`；不过就把失败贴给他
+- 收尾说一句「已更新到 2.2.0，网页刷新一下」
+- `doctor` 说 `更新：查不了`：多半是网络，让他自己决定要不要开代理后 `git pull`
+- 他说「先不更新」就继续画，这次别再提
+
+`doctor --fresh` 强制重查（默认缓存 30 分钟），`doctor --no-update` 完全不联网。
+地址默认先走 `gh-proxy.com` 前缀、再兜底直连 GitHub；要换就写进 `config/config.json`：
+
+| 键 | 默认 | 作用 |
+|---|---|---|
+| `update.url` | gh-proxy 前缀 + GitHub raw 直连（依次试） | 到哪拉 `package.json`，可以写一个地址或一组 |
+| `update.timeoutMs` | `6000` | 所有地址加起来的超时（毫秒） |
+
+**发版时要改 `package.json` 的 `version`**。这个功能只认版本号：不改号，别人永远看到「已是最新」。
