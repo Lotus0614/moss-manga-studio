@@ -205,7 +205,7 @@ manga character add --id rin --name "CHARACTER ONE - RIN" --look "18, long strai
 3. **分工**：
     - `panel.desc` 只写场景、光、构图、机位、tag——**不写人物长相、衣服、表情**
     - `character.desc` 写位置 + 这一格的姿势与状态：背身、被遮挡、表情、动作
-    - 整页裸体、受伤、换装：`desc` 开头加 `!`，这一格就不进本页角色表，外貌你自己在这格里写
+    - 整页裸体、受伤、换装：**优先建变种**（`manga character variant set --id rin --variant nude --look "completely naked"`），角色框选上它，外貌就由角色表带出来；只影响一个镜头的一次性特例，直接拉一个 `native` + `label: "character"` 的框，caption 里外貌自己写全
 
 4. 名字**只写罗马音**。提示词里的汉字会被模型当成「要画在画面上的字」（袖章、箱子上冒出来的那种）。
    台词里叫名字仍用中文。

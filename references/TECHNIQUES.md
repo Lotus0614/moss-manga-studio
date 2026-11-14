@@ -350,6 +350,10 @@ Clothes: grey zip hoodie worn open (open hoodie), white ribbed camisole (white c
   `she smells like cigarettes`）。它们占权重但不产生像素，还会把写死的细节挤淡。
   想表达性格就放进台词
 
+**`Clothes` 这一行不进基础 `look`，写进变种。** 基础外貌只留 `Hair` / `Eyes` / `Skin` / 体型基准，
+每套衣服（含裸体、制服、睡衣、小时候的衣服）建一个变种，角色框里选。
+这样同一个人只有一份头发和五官，换装不会漂移。
+
 分格复述：角色格子里的 `desc` 只写位置和姿势（`inside PANEL ONE only, kneeling`），
 外貌不要重复——已经由角色表自动带进 summary 了。
 
@@ -359,8 +363,8 @@ Clothes: grey zip hoodie worn open (open hoodie), white ribbed camisole (white c
 
 1. `look` 里固定写 **2–3 个 tag**：长度 + 造型 + 一个癖性（刘海 / 呆毛 / 发饰），之后每页都用**同一串字面**。
    `ponytail` 写成 `side ponytail`、`twin braids` 写成 `braid`，在模型眼里就是换了个人。
-2. 不在 `character.desc` 里重写发型（外貌只写一次）。这一格确实变了（湿发、被风吹乱、扎起来）才写，
-   并且 `desc` 开头加 `!`，让这一格不进本页角色表。
+2. 不在 `character.desc` 里重写发型（外貌只写一次）。这一格确实变了（湿发、被风吹乱、扎起来）才写；
+   经常出现的发型变化（马尾/披发）就建一个变种，一次性特例用 `native` + `label: "character"` 的框自己写全。
 3. 长发容易糊住画面：`hair behind ear`、`hair over shoulder`、`hair pulled back` 能保住脸又不挡动作。
    `hair up` 是**换发型**，不是「把头发撩起来」。
 4. 遮脸 tag（`hair over eyes`、`hair over face`、`bangs pinned back`）只在特写里用，正脸格用了就认不出人。

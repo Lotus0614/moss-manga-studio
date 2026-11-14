@@ -1,6 +1,6 @@
 {
   "name": "moss-manga-studio",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
   "description": "MOSS 漫画技能：CLI + 预览编辑器，为 Agent 生成漫画分镜而设计",

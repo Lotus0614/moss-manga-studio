@@ -1,14 +1,21 @@
-// 角色表：项目级人物设定（id / 显示名 / 英文外貌）。
-// 独立入口，和「项目设置」分开；页面上的角色项只存 ref，外貌从这里取。
+// 角色表：项目级人物设定 = 基础外貌 + 任意多个变种（服装 / 裸体 / 年龄阶段）。
+// 独立入口，和「项目设置」分开；页面上的角色项只存 ref + variant，外貌从这里取。
+// id 一律自动生成，不给手填——它只是存档里的键，用户看的是名字和备注。
 
 import { html, api, apiPut, useState, useEffect, toast } from '../lib.mjs';
 
-function nextId(list) {
+function nextId(list, prefix) {
   const used = new Set(list.map((char) => char.id));
   let n = 1;
-  while (used.has(`char${n}`)) n += 1;
-  return `char${n}`;
+  while (used.has(`${prefix}${n}`)) n += 1;
+  return `${prefix}${n}`;
 }
+
+const cleanId = (raw) =>
+  String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '');
 
 export default function CharactersModal({ slug, open, onClose, onSaved }) {
   const [list, setList] = useState(null);
@@ -19,7 +26,12 @@ export default function CharactersModal({ slug, open, onClose, onSaved }) {
     setList(null);
     api(`/api/projects/${slug}`)
       .then((project) => {
-        setList((project.characters || []).map((char) => ({ ...char })));
+        setList(
+          (project.characters || []).map((char) => ({
+            ...char,
+            variants: (char.variants || []).map((variant) => ({ ...variant })),
+          })),
+        );
       })
       .catch((err) => toast(err.message, 'bad'));
   }, [open, slug]);
@@ -31,17 +43,72 @@ export default function CharactersModal({ slug, open, onClose, onSaved }) {
   const patch = (index, next) =>
     setList((prev) => prev.map((char, i) => (i === index ? { ...char, ...next } : char)));
 
-  const add = () => setList((prev) => [...prev, { id: nextId(prev), name: '', look: '' }]);
+  const patchVariant = (index, vIndex, next) =>
+    setList((prev) =>
+      prev.map((char, i) =>
+        i === index
+          ? { ...char, variants: char.variants.map((v, j) => (j === vIndex ? { ...v, ...next } : v)) }
+          : char,
+      ),
+    );
+
+  const add = () =>
+    setList((prev) => [...prev, { id: nextId(prev, 'char'), name: '', look: '', variants: [] }]);
   const remove = (index) => setList((prev) => prev.filter((_, i) => i !== index));
+
+  const addVariant = (index) =>
+    setList((prev) =>
+      prev.map((char, i) =>
+        i === index
+          ? {
+              ...char,
+              variants: [
+                ...(char.variants || []),
+                { id: nextId(char.variants || [], 'v'), name: '', look: '', note: '' },
+              ],
+            }
+          : char,
+      ),
+    );
+
+  const removeVariant = (index, vIndex) =>
+    setList((prev) =>
+      prev.map((char, i) =>
+        i === index ? { ...char, variants: char.variants.filter((_, j) => j !== vIndex) } : char,
+      ),
+    );
 
   async function save() {
     const cleaned = [];
     const seen = new Set();
     for (const char of rows) {
-      const id = String(char.id || '').trim().toLowerCase();
+      const id = cleanId(char.id);
       if (!id || seen.has(id)) continue;
       seen.add(id);
-      cleaned.push({ id, name: String(char.name || '').trim() || id, look: String(char.look || '').trim() });
+      const entry = {
+        id,
+        name: String(char.name || '').trim() || id,
+        look: String(char.look || '').trim(),
+      };
+      const note = String(char.note || '').trim();
+      if (note) entry.note = note;
+      const variants = [];
+      const vSeen = new Set();
+      for (const variant of char.variants || []) {
+        const vId = cleanId(variant.id);
+        const look = String(variant.look || '').trim();
+        if (!vId || vSeen.has(vId) || !look) continue;
+        vSeen.add(vId);
+        const vNote = String(variant.note || '').trim();
+        variants.push({
+          id: vId,
+          name: String(variant.name || '').trim() || vId,
+          look,
+          ...(vNote ? { note: vNote } : {}),
+        });
+      }
+      if (variants.length) entry.variants = variants;
+      cleaned.push(entry);
     }
     setBusy(true);
     try {
@@ -64,44 +131,92 @@ export default function CharactersModal({ slug, open, onClose, onSaved }) {
         <button class="btn sm ghost" onClick=${onClose}>关闭</button>
       </header>
       <div class="body">
-        <span class="hint">
-          外貌只写一次，页面上的角色项按 id 引用。名字写成
-          <span class="mono">CHARACTER ONE - SHION</span>
-          这种带编号的形式，summary 会自动解析编号和名字；名字用罗马音，提示词里的汉字会被画到画面上。
-        </span>
+        <div class="modal-tip">
+          基础外貌写永远不变的东西（脸、眼、发、肤色、体型基准）；变种写会变的东西（年龄阶段、服装、裸体、道具），角色框里选完人再选变种。名字用罗马音，提示词里的汉字会被画到画面上。
+        </div>
 
         ${list === null
           ? html`<div class="hint">读取中…</div>`
           : rows.length
-            ? html`<div class="col" style="gap:10px">
+            ? html`<div class="cast-list">
                 ${rows.map(
-                  (char, i) => html`<div class="col" style="gap:6px;border:1px solid var(--line,#e5e5e5);padding:8px;border-radius:6px" key=${char.id + i}>
-                    <div class="row" style="gap:8px;align-items:center">
-                      <span class="mono small" style="min-width:64px">${char.id}</span>
+                  (char, i) => html`<section class="cast-card" key=${char.id + i}>
+                    <header class="cast-head">
+                      <span class="cast-id">${char.id}</span>
                       <input
                         class="input"
-                        placeholder="CHARACTER ONE - SHION（编号+罗马音名字，summary 自动解析）"
+                        style="flex:1;min-width:0"
+                        placeholder="CHARACTER ONE - SHION"
                         value=${char.name}
                         onInput=${(e) => patch(i, { name: e.currentTarget.value })}
                       />
+                      <input
+                        class="input"
+                        style="max-width:190px"
+                        placeholder="备注（中文，只给自己看）"
+                        value=${char.note || ''}
+                        onInput=${(e) => patch(i, { note: e.currentTarget.value })}
+                      />
                       <button class="btn sm ghost" title="删除角色" onClick=${() => remove(i)}>删除</button>
+                    </header>
+
+                    <div class="cast-body">
+                      <div class="cast-block base">
+                        <span class="cast-label">基础外貌 · 永远不变</span>
+                        <textarea
+                          class="textarea"
+                          style="min-height:56px"
+                          placeholder="英文：发型、五官、肤色、体型"
+                          value=${char.look}
+                          onInput=${(e) => patch(i, { look: e.currentTarget.value })}
+                        ></textarea>
+                      </div>
+
+                      <div class="cast-block variants">
+                        <span class="cast-label">
+                          变种 <span class="cast-id">${(char.variants || []).length}</span>
+                        </span>
+                        ${(char.variants || []).map(
+                          (variant, j) => html`<div class="cast-variant" key=${variant.id + j}>
+                            <div class="row" style="gap:6px;align-items:center">
+                              <span class="cast-id">${variant.id}</span>
+                              <input
+                                class="input"
+                                style="flex:1;min-width:0"
+                                placeholder="NUDE 15"
+                                value=${variant.name}
+                                onInput=${(e) => patchVariant(i, j, { name: e.currentTarget.value })}
+                              />
+                              <input
+                                class="input"
+                                style="max-width:190px"
+                                placeholder="备注（中文，只给自己看）"
+                                value=${variant.note || ''}
+                                onInput=${(e) => patchVariant(i, j, { note: e.currentTarget.value })}
+                              />
+                              <button class="btn sm ghost" title="删除变种" onClick=${() => removeVariant(i, j)}>×</button>
+                            </div>
+                            <textarea
+                              class="textarea"
+                              style="min-height:44px"
+                              placeholder="英文：15 years old, slim, medium breasts, completely naked"
+                              value=${variant.look}
+                              onInput=${(e) => patchVariant(i, j, { look: e.currentTarget.value })}
+                            ></textarea>
+                          </div>`,
+                        )}
+                        <div class="row">
+                          <button class="btn sm ghost" onClick=${() => addVariant(i)}>＋ 变种</button>
+                        </div>
+                      </div>
                     </div>
-                    <textarea
-                      class="textarea"
-                      style="min-height:56px"
-                      placeholder="英文外貌：年龄、发型、五官、服装、体型（这格裸体／受伤时不要写在这里，写到页面角色的 caption 里，前面加 !）"
-                      value=${char.look}
-                      onInput=${(e) => patch(i, { look: e.currentTarget.value })}
-                    ></textarea>
-                  </div>`
+                  </section>`,
                 )}
               </div>`
             : html`<div class="hint">还没有角色。先在这里定义主角，页面上才能选。</div>`}
 
         <div class="row">
           <button class="btn ghost" onClick=${add}>＋ 角色</button>
-          <div class="spacer"></div>
-          <span class="hint">单格特例（裸体／受伤／换装）：在页面角色的 caption 里写，前面加 <span class="mono">!</span></span>
         </div>
       </div>
       <footer>

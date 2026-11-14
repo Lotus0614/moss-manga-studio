@@ -26,7 +26,10 @@ export default function PagePanel({ page, mutate, setSelection, characters = [] 
       if (on) {
         const n = items.filter((it) => it.type === 'character').length;
         const bbox = [40 + (n % 4) * 36, 900 + (n % 3) * 28, 300 + (n % 4) * 36, 1240 + (n % 3) * 28];
-        return { ...cur, items: [...items, createItem('character', { ref: id, bbox })] };
+        // 勾出来就带上第一个变种，免得画出一个只有基础外貌的空壳
+        const owner = characters.find((char) => char.id === id);
+        const first = Array.isArray(owner?.variants) ? owner.variants[0]?.id : '';
+        return { ...cur, items: [...items, createItem('character', { ref: id, variant: first || '', bbox })] };
       }
       return {
         ...cur,

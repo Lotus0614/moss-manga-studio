@@ -11,8 +11,8 @@ import { validatePage } from './validate.mjs';
 export function compilePage(page, project = null) {
   const size = pageSize(page);
   const items = [];
-  // config 只拿到这个回调，不认识 project 结构
-  const resolveCharacter = (ref) => characterById(project, ref);
+  // config 只拿到这个回调，不认识 project 结构；变种合并在 characters.mjs 里做完
+  const resolveCharacter = (ref, variant) => characterById(project, ref, variant);
 
   for (const item of page.items || []) {
     const type = itemType(item.type);
@@ -42,10 +42,35 @@ export function compilePage(page, project = null) {
   };
 
   const json = JSON.stringify(doc);
+  const warnings = validatePage(page, doc);
+  // 角色/变种对不上只提醒，不拦渲染：角色项自身没有外貌，回退到基础 look 照样能出图
+  for (const item of page.items || []) {
+    if (item.type !== 'character' || !item.ref) continue;
+    const char = characterById(project, item.ref, item.variant);
+    if (!char) {
+      if (project) {
+        warnings.push({
+          level: 'warn',
+          code: 'character.ref',
+          message: `角色「${item.ref}」不在角色表里，这一格只能靠 desc 自己描述`,
+          target: item.id,
+        });
+      }
+      continue;
+    }
+    if (char.missingVariant) {
+      warnings.push({
+        level: 'warn',
+        code: 'character.variant',
+        message: `角色「${item.ref}」没有变种「${char.missingVariant}」，已回退到基础外貌`,
+        target: item.id,
+      });
+    }
+  }
   return {
     doc,
     json,
-    warnings: validatePage(page, doc),
+    warnings,
     stats: {
       items: items.length,
       chars: doc.summary.caption.length,

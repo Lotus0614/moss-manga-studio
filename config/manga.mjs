@@ -189,13 +189,14 @@ export const MOSS_LABELS = [
 ];
 
 // ---------------------------------------------------------------- 角色
-// 角色格只认「这是谁」（ref）和「这一格画什么」（desc，作者写全）。
+// 角色格只认「这是谁」（ref）、可选「哪个变种」（variant）和「这一格画什么」（desc，作者写全）。
 // 外貌存在项目的角色表里，只用来拼 summary 末尾的角色表；
+// 「基础外貌 + 变种外貌」的合并在 core 里做完再送进来，这里只读合并后的 look。
 // 这个文件不知道项目/存档长什么样，通过 resolveCharacter 回调取。
 
-/** summary 角色表里的一行：名字 + 外貌（来自角色表） */
+/** summary 角色表里的一行：名字 + 外貌（基础 + 变种，由 core 合并好再给过来） */
 function castLine(item, resolveCharacter) {
-    const char = resolveCharacter ? resolveCharacter(item.ref) : null;
+    const char = resolveCharacter ? resolveCharacter(item.ref, item.variant) : null;
     return {
         name: char?.name || item.ref || 'character',
         text: String(char?.look || '').trim(),
@@ -419,10 +420,38 @@ export const TYPES = [
         fields: [
             {
                 key: 'ref',
-                type: 'characterRef',
+                type: 'enum',
                 label: '角色',
                 required: true,
                 canvas: true,
+                options: ({ characters }) =>
+                    (characters || []).map((char) => ({
+                        value: char.id,
+                        label: char.note ? `${char.name} · ${char.note}` : char.name,
+                    })),
+                hint: ({ characters }) =>
+                    (characters || []).length ? '' : '项目还没有角色，点顶栏「角色表」添加。',
+            },
+            {
+                key: 'variant',
+                type: 'enum',
+                label: '变种（服装 / 裸体 / 年龄阶段，选项来自角色表）',
+                canvas: true,
+                options: ({ item, characters }) => {
+                    const owner = (characters || []).find((char) => char.id === item?.ref);
+                    return (owner?.variants || []).map((variant) => ({
+                        value: variant.id,
+                        label: variant.note ? `${variant.name} · ${variant.note}` : variant.name,
+                    }));
+                },
+                hint: ({ item, characters }) => {
+                    if (!item?.ref) return '先选角色，再选变种。';
+                    const owner = (characters || []).find((char) => char.id === item.ref);
+                    if (!owner) return '';
+                    return (owner.variants || []).length
+                        ? ''
+                        : `「${owner.name}」还没有变种，点顶栏「角色表」添加。`;
+                },
             },
             {
                 key: 'desc',
@@ -434,9 +463,7 @@ export const TYPES = [
         ],
         compile({ item, page }) {
             // 这一格的文案由作者写全（外貌在角色表里，summary 会自动带上）；没写就不出图
-            // 开头写 ! 表示「这一格和角色表不一样」，只影响 summary 要不要列这个角色，本身不带进提示词
             const body = String(item.desc || '')
-                .replace(/^!/, '')
                 .trim()
                 .replace(/[.。]+$/, '');
             if (!item.ref || !body) return null;
@@ -544,12 +571,14 @@ export function buildSummary({ page, items, resolveCharacter }) {
     if (page.scene) parts.push(page.scene);
 
     // 角色表：本页出现的角色，外貌只在这里写一次（手写 summary 时不追加）
+    // 去重键带变种：同一个人同页用两个变种（18 岁 + 15 岁）时要占两行，名字也不同
     const cast = [];
     const seen = new Set();
     for (const item of page.items || []) {
-        if (item.type !== 'character' || !item.ref || seen.has(item.ref)) continue;
-        if (String(item.desc || '').trim().startsWith('!')) continue;
-        seen.add(item.ref);
+        if (item.type !== 'character' || !item.ref) continue;
+        const key = `${item.ref}|${item.variant || ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         cast.push(castLine(item, resolveCharacter));
     }
     const castBlock = cast.length
@@ -592,29 +621,45 @@ export function fieldOf(typeKey, fieldKey) {
     return fieldsOf(typeKey).find((field) => field.key === fieldKey) || null;
 }
 
-export function optionsOf(field) {
-    return Array.isArray(field?.options) ? field.options : [];
+/**
+ * 一个枚举字段的可选项。
+ * `options` 既可以是数组，也可以是函数 `(ctx) => 选项数组`——
+ * ctx = { item, page, characters, ... }，由调用方（网页 / 画布）传进来。
+ * 角色、变种这类「选项来自项目数据」的字段就靠这个动态拼，不用为它们单开字段类型。
+ */
+export function optionsOf(field, ctx) {
+    const raw = field?.options;
+    if (typeof raw === 'function') return raw(ctx || {}) || [];
+    return Array.isArray(raw) ? raw : [];
+}
+
+/** 字段下面那行灰色提示（字符串或 (ctx) => 字符串，返回空串就不显示） */
+export function fieldHint(field, ctx) {
+    const raw = field?.hint;
+    if (!raw) return '';
+    return String((typeof raw === 'function' ? raw(ctx || {}) : raw) || '');
 }
 
 /** 某个枚举字段的某个值对应的整项（含 label / phrase 等） */
-export function optionOf(field, value) {
+export function optionOf(field, value, ctx) {
     if (!field) return null;
-    return optionsOf(field).find((option) => option.value === value) || null;
+    return optionsOf(field, ctx).find((option) => option.value === value) || null;
 }
 
-export function optionLabel(field, value) {
-    return optionOf(field, value)?.label ?? value;
+export function optionLabel(field, value, ctx) {
+    return optionOf(field, value, ctx)?.label ?? value;
 }
 
 /** 类型上的某个枚举字段取值 → 选项 */
-export function typeOption(typeKey, fieldKey, value) {
-    return optionOf(fieldOf(typeKey, fieldKey), value);
+export function typeOption(typeKey, fieldKey, value, ctx) {
+    return optionOf(fieldOf(typeKey, fieldKey), value, ctx);
 }
 
 /** 画布左上角标签：只有 canvas: true 的字段才出现 */
-export function canvasLabel(item, index = 0) {
+export function canvasLabel(item, index = 0, ctx = {}) {
     const type = itemType(item.type);
     if (!type) return item.type || '';
+    const scope = { ...ctx, item };
     const parts = [];
     for (const field of type.fields) {
         if (!field.canvas) continue;
@@ -622,7 +667,7 @@ export function canvasLabel(item, index = 0) {
         if (raw === undefined || raw === null || raw === '') continue;
         if (Array.isArray(raw) && !raw.length) continue;
         parts.push(
-            field.type === 'enum' ? optionLabel(field, raw) : String(raw),
+            field.type === 'enum' ? optionLabel(field, raw, scope) : String(raw),
         );
     }
     const head = type.label + (type.key === 'panel' ? index + 1 : '');

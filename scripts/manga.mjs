@@ -49,7 +49,7 @@ import { checkUpdate, describeUpdate } from './lib/update.mjs';
 import { compilePage } from '../core/compile.mjs';
 import { diffPage, describeOp } from './lib/diff.mjs';
 import { createItem } from '../core/manga-doc.mjs';
-import { normalizeCharacters } from '../core/characters.mjs';
+import { normalizeCharacters, normalizeVariants, variantsOf } from '../core/characters.mjs';
 import { pageOutline, projectOutline, warningsText, table, diffText } from './lib/format.mjs';
 
 const HERE = import.meta.dirname;
@@ -433,27 +433,84 @@ async function cmdCharacter() {
   project.characters = normalizeCharacters(project.characters);
 
   if (action === 'list') {
-    const rows = project.characters.map((char) => [char.id, char.name, char.look]);
+    const rows = [];
+    for (const char of project.characters) {
+      rows.push([char.id, char.name, char.note || '', char.look]);
+      for (const variant of variantsOf(char)) {
+        rows.push([`  └ ${variant.id}`, variant.name, variant.note || '', variant.look]);
+      }
+    }
     return out(
       { ok: true, characters: project.characters },
-      rows.length ? table(rows, ['id', '名字', '外貌（英文）']) : '这个项目还没有角色，用 `manga character add --id reina --name Reina --look "..."` 加一个',
+      rows.length
+        ? table(rows, ['id', '名字', '备注', '外貌（英文）'])
+        : '这个项目还没有角色，用 `manga character add --id reina --name Reina --look "..."` 加一个',
     );
   }
 
   const id = normalizeCharacters([{ id: flags.id }])[0]?.id || '';
 
+  // 变种：manga character variant set|remove|list --id <角色> --variant <变种>
+  if (action === 'variant') {
+    const sub = positional[2] || 'list';
+    const char = project.characters.find((item) => item.id === id);
+    if (!char) fail(`没有这个角色：${id || '（缺 --id）'}，先用 \`manga character list\` 看有哪些`);
+    const variantId = normalizeVariants([{ id: flags.variant }])[0]?.id || '';
+
+    if (sub === 'list') {
+      const rows = variantsOf(char).map((variant) => [variant.id, variant.name, variant.note || '', variant.look]);
+      return out(
+        { ok: true, variants: variantsOf(char) },
+        rows.length
+          ? table(rows, ['变种 id', '名字（进提示词）', '备注', '差分外貌（英文）'])
+          : `「${char.name}」还没有变种，用 \`manga character variant set --id ${id} --variant 15_nude --look "..."\` 加一个`,
+      );
+    }
+    if (!variantId) fail('需要 --variant（ASCII，例如 15_nude）');
+
+    if (sub === 'set') {
+      const look = String(flags.look || '').trim();
+      if (!look) fail('需要 --look：这个变种的差分外貌（英文），会拼在基础外貌后面');
+      const name = String(flags.name || variantId).trim();
+      const note = String(flags.note || '').trim();
+      const existed = variantsOf(char).some((variant) => variant.id === variantId);
+      const list = variantsOf(char).filter((variant) => variant.id !== variantId);
+      list.push({ id: variantId, name, look, ...(note ? { note } : {}) });
+      char.variants = normalizeVariants(list);
+      await saveProject(DIR, project);
+      return out(
+        { ok: true, character: char.id, variant: { id: variantId, name, look, ...(note ? { note } : {}) } },
+        `已${existed ? '更新' : '添加'}变种 ${name}（${char.id} / ${variantId}）`,
+      );
+    }
+
+    if (sub === 'remove') {
+      const before = variantsOf(char).length;
+      char.variants = variantsOf(char).filter((variant) => variant.id !== variantId);
+      if (variantsOf(char).length === before) fail(`「${char.name}」没有这个变种：${variantId}`);
+      if (!char.variants.length) delete char.variants;
+      await saveProject(DIR, project);
+      return out({ ok: true }, `已删除变种 ${variantId}（${char.id}）`);
+    }
+
+    fail('用法：manga character variant list|set|remove --id <角色> [--variant <变种> --name "NUDE 15" --look "…"]');
+  }
+
   if (action === 'add' || action === 'set') {
     if (!id) fail('需要 --id，只允许 ASCII（例如 reina）');
     const name = String(flags.name || id).trim();
     const look = String(flags.look || '').trim();
+    const note = String(flags.note || '').trim();
     if (!look) fail('需要 --look：英文外貌描述（发型、五官、服装、体型），不要写汉字名');
 
     const existing = project.characters.find((char) => char.id === id);
     if (existing) {
       existing.name = name;
       existing.look = look;
+      if (note) existing.note = note;
+      else delete existing.note;
     } else {
-      project.characters.push({ id, name, look });
+      project.characters.push({ id, name, look, ...(note ? { note } : {}) });
     }
     await saveProject(DIR, project);
     // 名字里的编号是 summary 自动解析角色表的依据，写错不拦，只提醒
@@ -461,7 +518,7 @@ async function cmdCharacter() {
       ? ''
       : `\n提示：名字建议写成「CHARACTER ONE - ${name}」，summary 会自动带上这个编号`;
     return out(
-      { ok: true, character: { id, name, look } },
+      { ok: true, character: { id, name, look, ...(note ? { note } : {}) } },
       `已${existing ? '更新' : '添加'}角色 ${name}（${id}）${named}`,
     );
   }
@@ -474,7 +531,7 @@ async function cmdCharacter() {
     return out({ ok: true }, `已删除角色 ${id}`);
   }
 
-  fail('用法：manga character list|add|set|remove [--id ID --name 名字 --look "英文外貌"]');
+  fail('用法：manga character list|add|set|remove|variant [--id ID --name 名字 --look "英文外貌"] [--variant 变种]');
 }
 
 async function cmdPage() {
@@ -532,9 +589,19 @@ async function cmdPage() {
     const ref = String(flags.ref || '').trim().toLowerCase();
     if (!ref) fail('需要 --ref（项目角色表里的 id），先用 `manga character list` 看有哪些');
     const chars = Array.isArray(project.characters) ? project.characters : [];
-    if (!chars.some((char) => char.id === ref)) {
+    const owner = chars.find((char) => char.id === ref);
+    if (!owner) {
       fail(`项目里没有这个角色：${ref}（现有：${chars.map((c) => c.id).join(', ') || '无'}）`);
     }
+
+    // 变种：给了就校验，没给就取第一个（顺序即默认值）
+    const wanted = String(flags.variant || '').trim().toLowerCase();
+    const variants = variantsOf(owner);
+    const fallback = wanted ? '' : variants[0]?.id || '';
+    if (wanted && !variants.some((variant) => variant.id === wanted)) {
+      fail(`「${owner.name}」没有这个变种：${wanted}（现有：${variants.map((v) => v.id).join(', ') || '无'}）`);
+    }
+    const variant = wanted || fallback;
 
     let bbox = null;
     const raw = String(flags.bbox || '').trim();
@@ -547,6 +614,7 @@ async function cmdPage() {
     const existing = page.items.filter((it) => it.type === 'character').length;
     const item = createItem('character', {
       ref,
+      variant,
       bbox:
         bbox ||
         [40 + (existing % 4) * 36, 900 + (existing % 3) * 28, 300 + (existing % 4) * 36, 1240 + (existing % 3) * 28],
@@ -558,9 +626,10 @@ async function cmdPage() {
     const hint = flags.desc
       ? ''
       : '\n还没有 desc：这一格不会出图，补上「CHARACTER ONE - 名字, inside PANEL ONE only, 姿势」才会进提示词';
+    const picked = variant && !wanted ? `，默认用了第一个变种 ${variant}` : '';
     return out(
       { ok: true, item, page: saved.page, rev: saved.rev },
-      `已把「${ref}」加到第 ${page.index} 页（${item.id}，rev ${saved.rev}），拖到想要的位置即可${hint}`,
+      `已把「${ref}」加到第 ${page.index} 页（${item.id}，rev ${saved.rev}）${picked}，拖到想要的位置即可${hint}`,
     );
   }
 
@@ -891,6 +960,8 @@ function cmdHelp() {
     manga character add --id shion --name "CHARACTER ONE - SHION" --look "18, long straight black hair, ..."
     manga character set --id shion --look "..."  改某个角色
     manga character remove --id shion
+    manga character variant set --id shion --variant 15_nude --name "NUDE 15" --look "15 years old, completely naked"
+    manga character variant remove --id shion --variant 15_nude
     manga page new [--title 标题] [--blank]     默认给一个整页框，排版自己定
     manga page list
     manga page show --page N [--summary]

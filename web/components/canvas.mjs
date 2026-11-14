@@ -68,19 +68,24 @@ function ItemBox({ item, page, index, selected, primary, fillAlpha, characters }
   const isNative = item.type === 'native';
   const character =
     item.type === 'character' ? (characters || []).find((c) => c.id === item.ref) : null;
+  const variant =
+    character && item.variant
+      ? (character.variants || []).find((v) => v.id === item.variant)
+      : null;
   const color = typeColor(item.type, fillAlpha);
 
   const label =
     item.type === 'character'
-      ? `角色 · ${character?.name || item.ref || '未选'}`
-      : canvasLabel(item, index);
+      ? `角色 · ${character?.name || item.ref || '未选'}${variant ? ` · ${variant.name}` : ''}`
+      : canvasLabel(item, index, { page, characters });
 
   const fs = Math.max(17, Math.min(w / 13, h / 4.5, 30));
   // 画布优先显示中文备注：英文提示词是给模型看的，不是给人看的
+  const look = [character?.look, variant?.look].filter(Boolean).join(', ');
   const body =
     item.note ||
     (item.type === 'character'
-      ? item.desc || character?.look || ''
+      ? item.desc || look || ''
       : isBubble
         ? item.text || item.desc
         : isNative

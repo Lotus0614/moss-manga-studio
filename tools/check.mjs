@@ -38,7 +38,7 @@ console.log(failed ? `\n${failed} / ${checked} 个文件有语法错误` : `\n${
 
 // 方言配置：枚举必须有选项、value 不重复、default 落在选项里
 const problems = [];
-const FIELD_TYPES = new Set(['text', 'longtext', 'number', 'enum', 'bool', 'tags', 'palette', 'characterRef']);
+const FIELD_TYPES = new Set(['text', 'longtext', 'number', 'enum', 'bool', 'tags', 'palette']);
 
 function checkFields(fields, where) {
   const keys = new Set();
@@ -51,6 +51,16 @@ function checkFields(fields, where) {
     if (!FIELD_TYPES.has(field.type)) problems.push(`${at}：type "${field.type}" 不认识`);
 
     if (field.type !== 'enum') continue;
+    // options 可以是数组，也可以是 (ctx) => 数组（角色、变种这种动态选项）
+    if (typeof field.options === 'function') {
+      try {
+        const sample = field.options({});
+        if (!Array.isArray(sample)) problems.push(`${at}：options() 必须返回数组`);
+      } catch (err) {
+        problems.push(`${at}：options() 报错 ${err.message}`);
+      }
+      continue;
+    }
     if (!Array.isArray(field.options) || !field.options.length) {
       problems.push(`${at}：enum 必须给 options 数组`);
       continue;

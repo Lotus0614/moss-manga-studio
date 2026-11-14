@@ -121,27 +121,39 @@ manga project delete [--project slug]
 
 ## character
 
-角色的外貌只写一次，存在 `project.json` 的 `characters` 里；页面上用 `{"type":"character","ref":"<id>"}` 引用。
+角色的外貌只写一次，存在 `project.json` 的 `characters` 里；页面上用 `{"type":"character","ref":"<id>","variant":"<变种>"}` 引用。
+
+一个角色 = **基础外貌**（脸、发型、肤色、体型基准）+ **任意多个变种**（年龄阶段、服装、裸体、道具）。
+换装换状态就加变种，不要新建角色。
 
 ```bash
 manga character list [--project slug]
-manga character add --id reina --name Reina --look "18, long straight black hair, red armband, NO glasses"
-manga character set --id reina --look "18, long straight black hair, red armband, glasses"
+manga character add --id reina --name Reina --look "18, long straight black hair" [--note "主角"]
+manga character set --id reina --look "18, long straight black hair, glasses"   # 改基础外貌
 manga character remove --id reina
+
+manga character variant list --id reina
+manga character variant set --id reina --variant 15_nude --name "NUDE 15" [--note "15 岁、裸体"] --look "15 years old, completely naked"
+manga character variant remove --id reina --variant 15_nude
 ```
 
-- `--id` 只允许 ASCII，页面上用它
-- `--look` 是英文外貌（发型、五官、服装、体型）；**不要写汉字名**，汉字会被模型画到画面上
+- `--id` / `--variant` 只允许 ASCII，页面上用它们（网页里自动生成，不用手填）
+- `--look` 是英文；**不要写汉字名**，汉字会被模型画到画面上
+- `--note` 是中文备注，只给人看，不进提示词
+- 变种的 `--look` 是**差分**，拼在基础外貌后面；`--name` 是进提示词的英文短标，角色表显示成 `Reina (NUDE 15)`
+- 变种顺序 = 默认值顺序，**第一个是默认变种**
 - 角色格里的文案由你自己写在 `desc` 里；summary 末尾会自动追加 `CHARACTERS IN THIS PAGE:`，外貌只在那里面出现一次
 
 页面上用 `page add-character` 加人（也可以走网页里的「本页角色」勾选）：
 
 ```bash
-manga page add-character --page 12 --ref shion [--bbox 40,900,300,1240] [--desc "CHARACTER ONE - SHION, inside PANEL ONE only, kneeling"]
+manga page add-character --page 12 --ref shion [--variant 15_nude] [--bbox 40,900,300,1240] [--desc "CHARACTER TWO - HIKARI (NUDE 15), inside PANEL ONE only, kneeling"]
 ```
 
 - 一次只加一个；同一角色同一页可以加多次（远景 + 特写）
-- `--desc` 是这一格的完整画面（编号 + 名字 + 位置 + 姿势），不写就不出图；开头写 `!` = 这格跟角色表不同，该角色不进本页角色表
+- 不写 `--variant` 而角色有变种时，自动用第一个，并在回执里说明
+- `--desc` 是这一格的完整画面（编号 + 名字 + 位置 + 姿势），不写就不出图
+- 只有这一个镜头特殊（受伤、湿发、换了临时造型）→ 别建变种，直接用 `native` + `label: "character"` 的框，caption 自己写全
 
 ---
 

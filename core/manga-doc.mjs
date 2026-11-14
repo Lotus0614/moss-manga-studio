@@ -140,6 +140,7 @@ export function createCharacterItem(patch = {}) {
     id: uid('ch'),
     bbox: [40, 900, 300, 1240],
     ref: '',
+    variant: '',
     ...patch,
   };
 }

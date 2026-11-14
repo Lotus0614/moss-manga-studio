@@ -152,17 +152,88 @@ test('character 类型：格子文案由作者写全，外貌只出现在 summar
   assert.ok(/CHARACTERS IN THIS PAGE/.test(out.doc.summary.caption));
   assert.ok(out.doc.summary.caption.includes('CHARACTER ONE - SHION: long silver hair'));
 
-  // 没写 desc 就不出图；! 开头的那一格不进角色表
+  // 没写 desc 就不出图
   page.items[1] = { type: 'character', id: 'c2', ref: 'shion', bbox: [560, 900, 740, 1200] };
   assert.equal(compilePage(page, project).doc.items.filter((i) => i.label === 'character').length, 0);
 
-  page.items[1] = { type: 'character', id: 'c3', ref: 'shion', bbox: [560, 900, 740, 1200], desc: '!completely naked' };
-  const over = compilePage(page, project);
-  const overItem = over.doc.items.find((i) => i.label === 'character');
-  assert.ok(overItem.caption.startsWith('completely naked'), overItem.caption);
-  assert.ok(!overItem.caption.startsWith('!'), '! 只是标记，不该留在提示词里');
-  assert.ok(!/CHARACTERS IN THIS PAGE/.test(over.doc.summary.caption), '用了 ! 的角色不进角色表');
+  // 一次性外貌不靠角色项：拉 native + label:character，caption 自己写全，也不进本页角色表
+  page.items[1] = {
+    type: 'native',
+    id: 'c3',
+    label: 'character',
+    bbox: [560, 900, 740, 1200],
+    caption: 'CHARACTER ONE - SHION, completely naked, kneeling, blood on her cheek',
+  };
+  const solo = compilePage(page, project);
+  const soloItem = solo.doc.items.find((i) => i.label === 'character');
+  assert.equal(soloItem.caption, 'CHARACTER ONE - SHION, completely naked, kneeling, blood on her cheek');
+  assert.ok(!/CHARACTERS IN THIS PAGE/.test(solo.doc.summary.caption), '原生角色框不进本页角色表');
 });
+test('变种：基础 + 差分拼成一份外貌，角色表按 ref|variant 去重', () => {
+  const project = {
+    characters: [
+      {
+        id: 'hikari',
+        name: 'CHARACTER TWO - HIKARI',
+        look: '1girl, long straight black hair',
+        variants: [
+          { id: '15_nude', name: 'NUDE 15', look: '15 years old, completely naked' },
+          { id: '18_dress', name: 'DRESS 18', look: '18 years old, a white dress' },
+        ],
+      },
+    ],
+  };
+  const page = createPage({ size: SIZE });
+  page.items = [
+    createPanelItem({ bbox: [8, 8, 760, 800], desc: 'room' }),
+    {
+      type: 'character',
+      id: 'c1',
+      ref: 'hikari',
+      variant: '15_nude',
+      bbox: [40, 40, 300, 700],
+      desc: 'CHARACTER TWO - HIKARI (NUDE 15), inside PANEL ONE only, kneeling',
+    },
+    {
+      type: 'character',
+      id: 'c2',
+      ref: 'hikari',
+      variant: '18_dress',
+      bbox: [400, 40, 700, 700],
+      desc: 'CHARACTER TWO - HIKARI (DRESS 18), inside PANEL ONE only, standing',
+    },
+    {
+      type: 'character',
+      id: 'c3',
+      ref: 'hikari',
+      variant: '15_nude',
+      bbox: [400, 800, 700, 1100],
+      desc: 'CHARACTER TWO - HIKARI (NUDE 15), inside PANEL TWO only',
+    },
+  ];
+  const out = compilePage(page, project);
+  const cast = out.doc.summary.caption;
+
+  // 基础 + 变种合并；名字带上变种标
+  assert.ok(cast.includes('CHARACTER TWO - HIKARI (NUDE 15): 1girl, long straight black hair, 15 years old, completely naked'), cast);
+  assert.ok(cast.includes('CHARACTER TWO - HIKARI (DRESS 18): 1girl, long straight black hair, 18 years old, a white dress'), cast);
+  // 同一变种出现两次只占一行，不同变种各占一行
+  assert.equal(cast.match(/CHARACTER TWO - HIKARI/g).length, 2, cast);
+
+  // 变种 id 不存在 → 回退基础外貌，并给 warn
+  page.items[1] = { ...page.items[1], variant: 'nope' };
+  const stale = compilePage(page, project);
+  assert.ok(
+    stale.warnings.some((w) => w.code === 'character.variant' && w.level === 'warn'),
+    '变种缺失要报 warn',
+  );
+  assert.ok(stale.doc.summary.caption.includes('CHARACTER TWO - HIKARI: 1girl'), '回退到基础外貌');
+
+  // 不选变种 = 只用基础外貌，名字不带括号
+  page.items[1] = { ...page.items[1], variant: '' };
+  assert.ok(compilePage(page, project).doc.summary.caption.includes('CHARACTER TWO - HIKARI: 1girl'));
+});
+
 test('编译无 error 级告警', () => {
   const errs = compiled.warnings.filter((w) => w.level === 'error');
   assert.deepEqual(errs, []);

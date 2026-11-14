@@ -523,7 +523,8 @@ a { color: inherit; }
   cursor: pointer;
 }
 /* 修图弹窗顶部的一句话说明 */
-.edit-tip {
+.edit-tip,
+.modal-tip {
   display: flex;
   gap: 8px;
   padding: 9px 12px;
@@ -540,6 +541,80 @@ a { color: inherit; }
   gap: 8px;
 }
 .edit-foot .textarea { flex: 1; min-width: 0; }
+
+/* ---- 角色表弹窗：基础外貌（红）与变种（琥珀）分块 ---- */
+.cast-list { display: flex; flex-direction: column; gap: 14px; }
+
+.cast-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.cast-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.cast-id {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.cast-head .input { background: var(--surface); }
+
+.cast-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; }
+
+.cast-block {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px 10px 10px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--line);
+}
+.cast-block.base {
+  border-left-color: var(--brand);
+  background: color-mix(in srgb, var(--brand-soft) 42%, var(--surface));
+}
+.cast-block.variants {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 34%, var(--surface));
+}
+.cast-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.cast-block.base .cast-label { color: var(--brand-hover); }
+.cast-block.variants .cast-label { color: var(--accent-hover); }
+
+.cast-variant {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.cast-variant:hover { border-color: var(--faint); }
+.cast-block .textarea, .cast-block .input { background: var(--surface); }
 
 /* 画布视口：画布本身滚动，浮层挂在这一层上，不会被工具栏高度影响 */
 .stage-wrap {

@@ -45,17 +45,39 @@ MOSS 原生格式的完整字段白名单、`canvas` / `tags` / `palette` 用法
 
 ### characters[]（角色表）
 
+**一个角色只建一次**：`look` 写永远不变的东西，会变的（年龄阶段、服装、裸体、道具）写进 `variants`。
+
 | 字段 | 值 |
 | --- | --- |
-| `id` | ASCII，页面里用 `ref` 引用它 |
+| `id` | ASCII，页面里用 `ref` 引用它。网页里新建时自动生成，不用手填 |
 | `name` | **必须写成 `CHARACTER ONE - MIO`**：`角色 N - 名字`，编译器靠这个格式把它拼进 summary 的角色表 |
-| `look` | 英文外貌（年龄、发型、五官、服装、体型）。**不要写汉字名**——汉字会被模型当成要渲染的字画到画面上 |
+| `look` | 基础外貌（脸、五官、发型、肤色、体型基准）。**不要写汉字名**——汉字会被模型当成要渲染的字画到画面上 |
+| `note` | 中文备注，**只给人看**，不进提示词。写「主角 / 她妈妈 / 15 岁回忆里的样子」这种一眼能认的话 |
+| `variants` | 变种数组，可省略。`[{ id, name, look, note }]`：`look` 是**差分**，会拼在基础 `look` 后面；`name` 是进提示词的英文短标（`NUDE 15`），角色表里显示成 `CHARACTER TWO - HIKARI (NUDE 15)` |
+
+```jsonc
+{
+    "id": "hikari",
+    "name": "CHARACTER TWO - HIKARI",
+    "note": "光莉，主角",
+    "look": "1girl, long straight dark chestnut hair down to her waist, blunt bangs …, pale skin",
+    "variants": [
+        { "id": "15_nude", "name": "NUDE 15", "note": "15 岁、裸体", "look": "15 years old, slim, medium breasts, completely naked" },
+        { "id": "15_sailor", "name": "SAILOR 15", "note": "15 岁、校服", "look": "15 years old, slim, medium breasts, a white sailor uniform" }
+    ]
+}
+```
+
+- 变种 `id` 规则同角色 `id`；同一角色内不许重复；**没有 `look` 的变种会被丢掉**
+- 变种顺序 = 界面里的顺序，**第一个是默认值**（勾选角色、`page add-character` 不写 `--variant` 时用它）
+- 年龄也是可变的：13 / 15 / 18 岁写成三个变种，不要建三个角色
 
 改角色表用 CLI 或网页顶栏「角色表」，别手改 `project.json`：
 
 ```bash
-node manga.mjs character add --id mio --name "CHARACTER ONE - MIO" --look "24, long silver-grey hair, plain black dress"
+node manga.mjs character add --id mio --name "CHARACTER ONE - MIO" --look "24, long silver-grey hair"
 node manga.mjs character set --id mio --look "…"
+node manga.mjs character variant set --id mio --variant topless --name TOPLESS --look "completely topless, a long skirt"
 node manga.mjs character list
 ```
 
@@ -162,19 +184,22 @@ PANEL TWO, the RIGHT panel of the middle row, to the RIGHT of PANEL THREE — cl
 | --- | --- |
 | `bbox` | 同上 |
 | `ref` | 必填，项目 `characters[].id` |
-| `desc` | 必填，这一格的完整画面：`编号 + 名字 + 位置 + 姿势`。开头写 `!` = 这格跟角色表不同（裸体、受伤、换装），该角色不进本页角色表 |
+| `variant` | 选填，该项目角色的 `variants[].id`。选完角色再选变种，summary 里的外貌 = 基础 + 这个差分 |
+| `desc` | 必填，这一格的完整画面：`编号 + 名字 + 位置 + 姿势` |
 
-编译产物**就是 `desc` 原文**（去掉开头的 `!`、补一个句号），再加收尾的画风约束。
+编译产物**就是 `desc` 原文**（补一个句号），再加收尾的画风约束。
 没有编号补全、没有位置推断、没有外貌注入。
 
 ```jsonc
-{ "type": "character", "id": "c1", "ref": "shion", "bbox": [560, 900, 740, 1200],
-  "desc": "CHARACTER ONE - SHION, inside PANEL ONE only, filling the CENTRE of PANEL ONE, kneeling, upper body turned to the side" }
+{ "type": "character", "id": "c1", "ref": "hikari", "variant": "15_nude", "bbox": [560, 900, 740, 1200],
+  "desc": "CHARACTER TWO - HIKARI (NUDE 15), inside PANEL ONE only, filling the CENTRE of PANEL ONE, kneeling" }
 ```
 
-- **外貌不写在格子里**，只在角色表里。summary 末尾的 `CHARACTERS IN THIS PAGE` 会自动带上（开头带 `!` 的格子不进）
+- **外貌不写在格子里**，只在角色表里。summary 末尾的 `CHARACTERS IN THIS PAGE` 会自动带上
+- 同一个角色一页出现两次 → 放两个 character 项，各自写 `inside PANEL ONE only`；两个项用了不同变种时，角色表会占两行、名字带变种标
 - 名字用罗马音；台词里叫名字用中文
-- 同一个角色一页出现两次 → 放两个 character 项，各自写 `inside PANEL ONE only`
+- 换装 / 裸体 / 长大或变小 → **建变种**，别新建角色
+- **一次性外貌**（只有这一个镜头特殊：受伤、湿发、换了临时造型）→ 拉一个 `native` + `label: "character"` 的框，caption 里自己写全，它跟角色表无关，也不会进本页角色表
 
 ---
 
