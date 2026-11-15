@@ -364,7 +364,7 @@ Clothes: grey zip hoodie worn open (open hoodie), white ribbed camisole (white c
 1. `look` 里固定写 **2–3 个 tag**：长度 + 造型 + 一个癖性（刘海 / 呆毛 / 发饰），之后每页都用**同一串字面**。
    `ponytail` 写成 `side ponytail`、`twin braids` 写成 `braid`，在模型眼里就是换了个人。
 2. 不在 `character.desc` 里重写发型（外貌只写一次）。这一格确实变了（湿发、被风吹乱、扎起来）才写；
-   经常出现的发型变化（马尾/披发）就建一个变种，一次性特例用 `native` + `label: "character"` 的框自己写全。
+   经常出现的发型变化（马尾/披发）就建一个变种；一次性特例就把角色框的「写进本页角色表」勾掉，外貌会自动拼进这一格。
 3. 长发容易糊住画面：`hair behind ear`、`hair over shoulder`、`hair pulled back` 能保住脸又不挡动作。
    `hair up` 是**换发型**，不是「把头发撩起来」。
 4. 遮脸 tag（`hair over eyes`、`hair over face`、`bangs pinned back`）只在特写里用，正脸格用了就认不出人。

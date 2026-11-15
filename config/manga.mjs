@@ -459,17 +459,29 @@ export const TYPES = [
                 label: '这一格的画面（自己写全：编号 + 名字 + 位置 + 姿势）',
                 required: true,
             },
+            {
+                key: 'inCast',
+                type: 'bool',
+                label: '写进本页角色表（取消勾选＝外貌直接拼进这一格，不进 CHARACTERS IN THIS PAGE）',
+                default: true,
+            },
             ...BASE_FIELDS,
         ],
-        compile({ item, page }) {
+        compile({ item, page, resolveCharacter }) {
             // 这一格的文案由作者写全（外貌在角色表里，summary 会自动带上）；没写就不出图
             const body = String(item.desc || '')
                 .trim()
                 .replace(/[.。]+$/, '');
             if (!item.ref || !body) return null;
+            // inCast=false：不进本页角色表，那就把「基础 + 变种」的外貌直接拼进这一格的 caption，
+            // 让这一格自带人物信息（desc 只管位置和姿势）
+            const inline =
+                item.inCast === false && resolveCharacter
+                    ? String(resolveCharacter(item.ref, item.variant)?.look || '').trim()
+                    : '';
             return {
                 label: 'character',
-                caption: `${body}.`,
+                caption: inline ? `${body}. ${inline}.` : `${body}.`,
             };
         },
     },
@@ -576,6 +588,8 @@ export function buildSummary({ page, items, resolveCharacter }) {
     const seen = new Set();
     for (const item of page.items || []) {
         if (item.type !== 'character' || !item.ref) continue;
+        // inCast=false：这一格外貌自己写，不占本页角色表的一行
+        if (item.inCast === false) continue;
         const key = `${item.ref}|${item.variant || ''}`;
         if (seen.has(key)) continue;
         seen.add(key);

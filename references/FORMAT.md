@@ -186,20 +186,27 @@ PANEL TWO, the RIGHT panel of the middle row, to the RIGHT of PANEL THREE — cl
 | `ref` | 必填，项目 `characters[].id` |
 | `variant` | 选填，该项目角色的 `variants[].id`。选完角色再选变种，summary 里的外貌 = 基础 + 这个差分 |
 | `desc` | 必填，这一格的完整画面：`编号 + 名字 + 位置 + 姿势` |
+| `inCast` | 默认 `true`。取消勾选 = **这一格不进本页角色表**，外貌（基础 + 变种）会自动拼进这一格的 caption；`desc` 只管位置和姿势 |
 
 编译产物**就是 `desc` 原文**（补一个句号），再加收尾的画风约束。
-没有编号补全、没有位置推断、没有外貌注入。
+没有编号补全、没有位置推断、没有外貌注入——**除非**这一格取消了「写进本页角色表」：那时外貌会拼在 `desc` 后面。
 
 ```jsonc
 { "type": "character", "id": "c1", "ref": "hikari", "variant": "15_nude", "bbox": [560, 900, 740, 1200],
   "desc": "CHARACTER TWO - HIKARI (NUDE 15), inside PANEL ONE only, filling the CENTRE of PANEL ONE, kneeling" }
+
+// 一次性特例：不进本页角色表，外貌自己拼进这一格
+{ "type": "character", "id": "c2", "ref": "mio", "variant": "home", "inCast": false, "bbox": [80, 200, 420, 700],
+  "desc": "CHARACTER THREE - MIO (HOME), inside PANEL ONE only, kneeling, badly bruised on one cheek" }
+// → caption = "CHARACTER THREE - MIO (HOME), inside PANEL ONE only, kneeling, badly bruised on one cheek.
+//              40 years old, 1girl, mature female, …, a beige cardigan over a white blouse, a long skirt."
 ```
 
 - **外貌不写在格子里**，只在角色表里。summary 末尾的 `CHARACTERS IN THIS PAGE` 会自动带上
 - 同一个角色一页出现两次 → 放两个 character 项，各自写 `inside PANEL ONE only`；两个项用了不同变种时，角色表会占两行、名字带变种标
 - 名字用罗马音；台词里叫名字用中文
 - 换装 / 裸体 / 长大或变小 → **建变种**，别新建角色
-- **一次性外貌**（只有这一个镜头特殊：受伤、湿发、换了临时造型）→ 拉一个 `native` + `label: "character"` 的框，caption 里自己写全，它跟角色表无关，也不会进本页角色表
+- **一次性外貌**（只有这一个镜头特殊：受伤、湿发、临时造型）→ 取消勾选「写进本页角色表」，外貌会拼进这一格，`desc` 里只写姿势和这份特例（「badly bruised on one cheek」）。跟项目角色表完全无关的临时人物（路人、回忆里的人），拉 `native` + `label: "character"` 的框更省事
 
 ---
 
