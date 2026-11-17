@@ -132,6 +132,18 @@ CHARACTERS IN THIS PAGE (each one appears only inside its own box):
 2. 人物的 desc 可以短到 `in the PANEL TWO`——外貌在角色表里，姿势前面那个框已经给过
 3. 破格只写 `broken out to the PANEL ONE`，越界多少由 `bbox` 决定
 
+### 黑白页：一个颜色词都别写
+
+`style` 是 `mono` 时，`scene`、每格 `desc`、角色 `look` 里都不要出现颜色词，换成深／浅：
+
+| 别写 | 改成 |
+| --- | --- |
+| `red armband`、`gold buttons` | `dark armband`、`bright buttons` |
+| `golden afternoon light`、`warm sunset` | `strong backlight`、`steep shadows` |
+| `chestnut hair`、`blue eyes` | `dark hair`、`dark eyes` |
+
+`black ink`、`white lather` 这类是说明度的，留着。
+
 ---
 
 ## 4. `desc` 三段分工
@@ -220,8 +232,6 @@ PANEL THREE, a small inset stuck onto the BOTTOM LEFT corner of PANEL ONE — th
 出血格可以超出画布，人物顶满三边，是「一页一张大图」的主要手段。满版页用 `bleed-all`。
 
 ### 破框
-
-**破框不是让人物冲到空白纸上**——那块白纸本来就没内容，冲上去等于白扔版面。
 
 破框 = **人物压到相邻那一格**：把他的 `bbox` 越过自己格的格线 100–220px，伸进旁边那格的画面里，
 `desc` 写 `broken out to the PANEL ONE` 之类的短语，模型就会把他的身体画在邻格之上、格线从他身后过。
@@ -512,6 +522,7 @@ node manga.mjs edit --page 1 --prompt "把左上角气泡的尾巴删掉"
 | 画面里冒出莫名其妙的英文/汉字 | `desc` 里有 meta 句子（「这是她的角色框」），或海报允许有字 | 删掉解释性文字；海报写 NO text or lettering |
 | 提示词越写越长还是画不对 | 格子不够 | 加一个 character 框把位置钉住（§6） |
 | 一张图反复出同一种错 | 种子／提示词里的从属关系被误读 | 先换 `--seed` 排除偶然，再按上表定位 |
+| 设了黑白却出彩色 | `scene` / `desc` / 角色 `look` 里混进了颜色词（red、gold、chestnut…） | 一处都不留，全换成深／浅（§3「黑白页」） |
 | 文字糊、竖排乱码 | 分辨率不够，或竖排里写了阿拉伯数字 | 提高画布尺寸；数字改汉字 |
 
 仍然找不到原因的，把 `node manga.mjs compile --page N` 的输出读一遍——实际发给模型的那段话

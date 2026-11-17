@@ -104,13 +104,25 @@ export const STYLES = [
     {
         value: 'mono',
         label: '黑白网点',
-        meta: ['comic', 'multi_panel', 'digital_painting', 'monochrome'],
-        phrase: 'High-taste, black and white vertical 2D manga comic, black ink on white paper, grey screentone dots only, zero colour.',
+        meta: [
+            'comic',
+            'multi_panel',
+            'digital_painting',
+            'monochrome',
+            'japanese manga page',
+        ],
+        phrase: 'STRICTLY BLACK AND WHITE MANGA PAGE, ONE-COLOUR PRINT. Black ink lines on bare white paper, grey screentone dot patterns only. ZERO COLOUR: no flesh colour, no skin tone, no colour wash, no colour glow. Skin is flat pale GREY halftone with black line shading. Shadows are dense black crosshatching; highlights are untouched white paper.',
     },
     {
         value: 'color',
         label: '彩色',
-        meta: ['comic', 'multi_panel', 'digital_painting', 'full color'],
+        meta: [
+            'comic',
+            'multi_panel',
+            'digital_painting',
+            'full color',
+            'japanese manga page',
+        ],
         phrase: 'High-taste, fully colored vertical 2D digital painting comic, clean ink lineart with soft muted colouring.',
     },
     {
@@ -196,7 +208,9 @@ export const MOSS_LABELS = [
 
 /** summary 角色表里的一行：名字 + 外貌（基础 + 变种，由 core 合并好再给过来） */
 function castLine(item, resolveCharacter) {
-    const char = resolveCharacter ? resolveCharacter(item.ref, item.variant) : null;
+    const char = resolveCharacter
+        ? resolveCharacter(item.ref, item.variant)
+        : null;
     return {
         name: char?.name || item.ref || 'character',
         text: String(char?.look || '').trim(),
@@ -232,8 +246,7 @@ const fill = (template, vars = {}) =>
 export const EDIT = {
     wrapper:
         '在这张漫画里{request}。没提到的部分保持原样：格子排列、气泡位置和形状、气泡里的文字一个字都不改，画风不变。',
-    marked:
-        '在这张漫画里，只改图中{marks}标出来的地方：{request}。这些标记只是给你指位置，不要把标记画进画面。标出的区域以外一律保持原样：格子排列、气泡位置和形状、气泡里的文字一个字都不改，画风不变。',
+    marked: '在这张漫画里，只改图中{marks}标出来的地方：{request}。这些标记只是给你指位置，不要把标记画进画面。标出的区域以外一律保持原样：格子排列、气泡位置和形状、气泡里的文字一个字都不改，画风不变。',
     /** 涂鸦工具：value 进数据，label 是界面按钮，name 是拼进提示词的说法 */
     tools: [
         { value: 'rect', label: '方框', name: '方框' },
@@ -260,7 +273,9 @@ export function describeMarks(marks) {
         const tool = EDIT.tools.find((item) => item.value === mark?.tool);
         const swatch = EDIT.swatches.find((item) => item.value === mark?.color);
         if (!tool) continue;
-        const phrase = swatch ? `${swatch.label}色${tool.name}` : `彩色${tool.name}`;
+        const phrase = swatch
+            ? `${swatch.label}色${tool.name}`
+            : `彩色${tool.name}`;
         if (seen.has(phrase)) continue;
         seen.add(phrase);
         parts.push(phrase);
@@ -427,10 +442,14 @@ export const TYPES = [
                 options: ({ characters }) =>
                     (characters || []).map((char) => ({
                         value: char.id,
-                        label: char.note ? `${char.name} · ${char.note}` : char.name,
+                        label: char.note
+                            ? `${char.name} · ${char.note}`
+                            : char.name,
                     })),
                 hint: ({ characters }) =>
-                    (characters || []).length ? '' : '项目还没有角色，点顶栏「角色表」添加。',
+                    (characters || []).length
+                        ? ''
+                        : '项目还没有角色，点顶栏「角色表」添加。',
             },
             {
                 key: 'variant',
@@ -438,15 +457,21 @@ export const TYPES = [
                 label: '变种（服装 / 裸体 / 年龄阶段，选项来自角色表）',
                 canvas: true,
                 options: ({ item, characters }) => {
-                    const owner = (characters || []).find((char) => char.id === item?.ref);
+                    const owner = (characters || []).find(
+                        (char) => char.id === item?.ref,
+                    );
                     return (owner?.variants || []).map((variant) => ({
                         value: variant.id,
-                        label: variant.note ? `${variant.name} · ${variant.note}` : variant.name,
+                        label: variant.note
+                            ? `${variant.name} · ${variant.note}`
+                            : variant.name,
                     }));
                 },
                 hint: ({ item, characters }) => {
                     if (!item?.ref) return '先选角色，再选变种。';
-                    const owner = (characters || []).find((char) => char.id === item.ref);
+                    const owner = (characters || []).find(
+                        (char) => char.id === item.ref,
+                    );
                     if (!owner) return '';
                     return (owner.variants || []).length
                         ? ''
@@ -462,7 +487,7 @@ export const TYPES = [
             {
                 key: 'inCast',
                 type: 'bool',
-                label: '写进本页角色表（取消勾选＝外貌直接拼进这一格，不进 CHARACTERS IN THIS PAGE）',
+                label: '写进本页角色列表（角色格的信息）',
                 default: true,
             },
             ...BASE_FIELDS,
@@ -477,7 +502,9 @@ export const TYPES = [
             // 让这一格自带人物信息（desc 只管位置和姿势）
             const inline =
                 item.inCast === false && resolveCharacter
-                    ? String(resolveCharacter(item.ref, item.variant)?.look || '').trim()
+                    ? String(
+                          resolveCharacter(item.ref, item.variant)?.look || '',
+                      ).trim()
                     : '';
             return {
                 label: 'character',
@@ -597,7 +624,10 @@ export function buildSummary({ page, items, resolveCharacter }) {
     }
     const castBlock = cast.length
         ? `<|character_list|>\nCHARACTERS IN THIS PAGE (each one appears only inside its own box):\n${cast
-              .map((char) => `- ${char.name}${char.text ? `: ${char.text}` : ''}`)
+              .map(
+                  (char) =>
+                      `- ${char.name}${char.text ? `: ${char.text}` : ''}`,
+              )
               .join('\n')}\n<|/character_list|>`
         : '';
     if (castBlock) parts.push(castBlock);
@@ -657,7 +687,9 @@ export function fieldHint(field, ctx) {
 /** 某个枚举字段的某个值对应的整项（含 label / phrase 等） */
 export function optionOf(field, value, ctx) {
     if (!field) return null;
-    return optionsOf(field, ctx).find((option) => option.value === value) || null;
+    return (
+        optionsOf(field, ctx).find((option) => option.value === value) || null
+    );
 }
 
 export function optionLabel(field, value, ctx) {
@@ -681,7 +713,9 @@ export function canvasLabel(item, index = 0, ctx = {}) {
         if (raw === undefined || raw === null || raw === '') continue;
         if (Array.isArray(raw) && !raw.length) continue;
         parts.push(
-            field.type === 'enum' ? optionLabel(field, raw, scope) : String(raw),
+            field.type === 'enum'
+                ? optionLabel(field, raw, scope)
+                : String(raw),
         );
     }
     const head = type.label + (type.key === 'panel' ? index + 1 : '');
