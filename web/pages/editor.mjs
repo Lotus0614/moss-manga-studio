@@ -30,12 +30,6 @@ import { useLivePage } from '../realtime.mjs';
 import { openDock, trackTask, useTaskForPage } from '../tasks.mjs';
 import { createItem } from '../../core/manga-doc.mjs';
 
-const STYLE_LABELS = [
-  ['mono', '黑白网点'],
-  ['color', '彩色'],
-  ['sketch', '线稿'],
-];
-
 // 格子底色的不透明度：存在浏览器里，所有页面、下次打开都沿用
 const FILL_ALPHA_KEY = 'moss.fillAlpha';
 const DEFAULT_FILL_ALPHA = 0.5;

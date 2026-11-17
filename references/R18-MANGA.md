@@ -137,27 +137,33 @@ PLAIN WHITE BACKGROUND with no background detail at all
 
 ## 7. 人物：外貌写一次，格子只写这一格
 
-1. 角色写进项目（`name` 必须是 `角色 N - 名字` 格式，summary 角色表靠它解析）：
+1. 角色写进项目（`name` 必须是 `角色 N - 名字` 格式，summary 角色表靠它解析）。
+   **基础 `look` 只写脸、眼、发、肤色、体型**；衣服、裸体、年龄阶段全部做成变种——
+   同一个人不要为了「穿不穿」建两个角色，否则头发和五官会有两份，脸就开始飘：
 
 ```bash
-manga character add --id rin --name "CHARACTER ONE - RIN" --look "18, long straight black hair, large bust"
+manga character add --id rin --name "CHARACTER ONE - RIN" --look "18, long straight black hair, pale skin, large breasts"
+manga character variant set --id rin --variant nude --name NUDE --note "裸体" --look "completely nude"
+manga character variant set --id rin --variant home --name HOME --note "在家" --look "an oversized white t-shirt"
 ```
 
-2. 页面上放一个 character 项，`desc` **自己写全**（编号 + 名字 + 位置 + 姿势），不写就不出图：
+2. 页面上放一个 character 项，`desc` **自己写全**（编号 + 名字 + 位置 + 姿势），不写就不出图；
+   有变种就用 `variant` 选一个：
 
 ```jsonc
 {
     "type": "character",
     "ref": "rin",
+    "variant": "nude",
     "bbox": [180, 160, 780, 1130],
-    "desc": "CHARACTER ONE - RIN, inside PANEL ONE only, kneeling on the bed, back to the camera",
+    "desc": "CHARACTER ONE - RIN (NUDE), inside PANEL ONE only, kneeling on the bed, back to the camera",
 }
 ```
 
 3. **分工**：
     - `panel.desc` 只写场景、光、构图、机位、tag——**不写人物长相、衣服、表情**
     - `character.desc` 写位置 + 这一格的姿势与状态：背身、被遮挡、表情、动作
-    - 整页裸体、受伤、换装：**优先建变种**（`manga character variant set --id rin --variant nude --look "completely naked"`），角色框选上它，外貌就由角色表带出来；只影响一个镜头的一次性特例，取消勾选角色框的「写进本页角色表」，外貌会自动拼进这一格，`desc` 只写姿势和这份特例
+    - 整页裸体、受伤、换装：**优先建变种**（`manga character variant set --id rin --variant nude --look "completely naked"`），角色框选上它，外貌就由角色表带出来；只影响一个镜头的一次性特例，把角色框的「角色信息位置」选成 `当前 Item`（或 `两者都加`），外貌会自动拼进这一格，`desc` 只写姿势和这份特例
 
 4. 名字**只写罗马音**。提示词里的汉字会被模型当成「要画在画面上的字」（袖章、箱子上冒出来的那种）。
    台词里叫名字仍用中文。

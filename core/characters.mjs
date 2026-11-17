@@ -21,12 +21,15 @@ export function projectCharacters(project) {
 }
 
 /** id 清洗：小写 ASCII，页面里的 ref / variant 永远是这个形状 */
-function cleanId(raw) {
+export function cleanCharacterId(raw) {
   return String(raw || '')
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, '');
 }
+
+/** 内部别名 */
+const cleanId = cleanCharacterId;
 
 /** 一个角色的变种数组（永远返回数组） */
 export function variantsOf(character) {

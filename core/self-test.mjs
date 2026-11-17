@@ -169,19 +169,27 @@ test('character 类型：格子文案由作者写全，外貌只出现在 summar
   assert.equal(soloItem.caption, 'CHARACTER ONE - SHION, completely naked, kneeling, blood on her cheek');
   assert.ok(!/CHARACTERS IN THIS PAGE/.test(solo.doc.summary.caption), '原生角色框不进本页角色表');
 
-  // 勾掉「写进本页角色表」的角色项：外貌直接拼进这一格的 caption，summary 里不再出现
+  // 「角色信息位置」选「当前 Item」：外貌直接拼进这一格的 caption，summary 里不再出现
   page.items[1] = {
     type: 'character',
     id: 'c4',
     ref: 'shion',
-    inCast: false,
+    castAt: 'item',
     bbox: [560, 900, 740, 1200],
     desc: 'CHARACTER ONE - SHION, injured, blood on her cheek',
   };
   const off = compilePage(page, project);
   const offItem = off.doc.items.find((i) => i.label === 'character');
   assert.equal(offItem.caption, 'CHARACTER ONE - SHION, injured, blood on her cheek. long silver hair.');
-  assert.ok(!/CHARACTERS IN THIS PAGE/.test(off.doc.summary.caption), 'inCast=false 的格子不进角色表');
+  assert.ok(!/CHARACTERS IN THIS PAGE/.test(off.doc.summary.caption), 'castAt=item 的格子不进角色表');
+
+  // 「两者都加」：格子自带外貌，角色表里也留一行
+  page.items[1] = { ...page.items[1], castAt: 'both' };
+  const both = compilePage(page, project);
+  const bothItem = both.doc.items.find((i) => i.label === 'character');
+  assert.equal(bothItem.caption, 'CHARACTER ONE - SHION, injured, blood on her cheek. long silver hair.');
+  assert.ok(/CHARACTERS IN THIS PAGE/.test(both.doc.summary.caption), 'castAt=both 仍然进角色表');
+  assert.ok(both.doc.summary.caption.includes('CHARACTER ONE - SHION: long silver hair'));
 });
 test('变种：基础 + 差分拼成一份外貌，角色表按 ref|variant 去重', () => {
   const project = {

@@ -35,8 +35,16 @@ MOSS 原生格式的完整字段白名单、`canvas` / `tags` / `palette` 用法
     "size": "page",               // 画布档位：page | page-hd | square | wide
     "canvas": [896, 1152],        // 实际像素，16 的倍数；新页继承它
     "defaults": { "style": "mono", "vertical": true },
-    "characters": [               // 角色表，跨页一致的外貌只写这一次
-        { "id": "mio", "name": "CHARACTER ONE - MIO", "look": "…" }
+    "characters": [               // 角色表：一个角色 = 基础外貌 + 任意多个变种
+        {
+            "id": "mio",
+            "name": "CHARACTER ONE - MIO",
+            "note": "母亲",        // 中文备注，只给人看
+            "look": "40 years old, 1girl, long straight black brown hair, pale skin",
+            "variants": [
+                { "id": "home", "name": "HOME", "note": "在家", "look": "a beige cardigan over a white blouse, a long skirt" }
+            ]
+        }
     ],
     "pages": ["p01", "p02"],      // 页序，决定 page list 的顺序
     "createdAt": "2026-10-24T20:18:24.646Z",
@@ -95,7 +103,7 @@ node manga.mjs character list
     "rev": 7,
     "version": 2,          // 存档格式版本，v2 起「画面描述」叫 desc
     "size": [768, 1280],   // 本页画布，16 的倍数
-    "style": "mono",       // mono | color | sketch
+    "style": "mono",       // mono | color | sketch | real | 3d
     "vertical": true,      // 全局竖排；单条 bubble 可用自己的 vertical 覆盖
     "scene": "",           // 整页场景与版式，写法见 TECHNIQUES「页面提示词的结构」
     "note": "",            // 整页备注，只给人看，不进 summary（和 item 的 note 一个意思）
@@ -109,7 +117,7 @@ node manga.mjs character list
 
 | 字段 | 类型 | 值 / 说明 |
 | --- | --- | --- |
-| `style` | enum | `mono` 黑白网点、`color` 彩色、`sketch` 线稿。整页总基调，写在 summary 开头 |
+| `style` | enum | `mono` 黑白网点、`color` 彩色、`sketch` 线稿、`real` 真实、`3d` 3D。整页总基调，写在 summary 开头 |
 | `vertical` | bool | 全局文字竖排，默认 `true` |
 | `scene` | longtext | 整页场景 + 版式。**这是剧情和构图唯一的入口**，格式见 TECHNIQUES |
 | `note` | longtext | 整页备注，**只给人看，不进提示词**（和 item 的 note 一样） |
@@ -121,7 +129,7 @@ node manga.mjs character list
 | `type` | 是什么 | 专有字段 |
 | --- | --- | --- |
 | `panel` | 一个分格 | `bbox` `desc` `shape` `frame` `camera` |
-| `character` | 一个指定位置的人物 | `bbox` `ref` `desc` |
+| `character` | 一个指定位置的人物 | `bbox` `ref` `variant` `desc` `castAt` |
 | `bubble` | 一条文字 | `bbox` `text` `kind` `desc` `vertical` |
 | `native` | 原生 Moss item，绕过语义层 | `bbox` `label` `text` `caption` |
 
@@ -186,17 +194,17 @@ PANEL TWO, the RIGHT panel of the middle row, to the RIGHT of PANEL THREE — cl
 | `ref` | 必填，项目 `characters[].id` |
 | `variant` | 选填，该项目角色的 `variants[].id`。选完角色再选变种，summary 里的外貌 = 基础 + 这个差分 |
 | `desc` | 必填，这一格的完整画面：`编号 + 名字 + 位置 + 姿势` |
-| `inCast` | 默认 `true`。取消勾选 = **这一格不进本页角色表**，外貌（基础 + 变种）会自动拼进这一格的 caption；`desc` 只管位置和姿势 |
+| `castAt` | `summary`（默认）/ `item` / `both`。`summary` = 外貌写进本页角色表，几格共用一份；`item` = 外貌直接拼进这一格的 caption，不占角色表；`both` = 两边都写一份 |
 
 编译产物**就是 `desc` 原文**（补一个句号），再加收尾的画风约束。
-没有编号补全、没有位置推断、没有外貌注入——**除非**这一格取消了「写进本页角色表」：那时外貌会拼在 `desc` 后面。
+没有编号补全、没有位置推断、没有外貌注入——**除非**这一格把「角色信息位置」选成了 `当前 Item` 或 `两者都加`：那时外貌会拼在 `desc` 后面。
 
 ```jsonc
 { "type": "character", "id": "c1", "ref": "hikari", "variant": "15_nude", "bbox": [560, 900, 740, 1200],
   "desc": "CHARACTER TWO - HIKARI (NUDE 15), inside PANEL ONE only, filling the CENTRE of PANEL ONE, kneeling" }
 
-// 一次性特例：不进本页角色表，外貌自己拼进这一格
-{ "type": "character", "id": "c2", "ref": "mio", "variant": "home", "inCast": false, "bbox": [80, 200, 420, 700],
+// 一次性特例：外貌拼进这一格，不占本页角色表
+{ "type": "character", "id": "c2", "ref": "mio", "variant": "home", "castAt": "item", "bbox": [80, 200, 420, 700],
   "desc": "CHARACTER THREE - MIO (HOME), inside PANEL ONE only, kneeling, badly bruised on one cheek" }
 // → caption = "CHARACTER THREE - MIO (HOME), inside PANEL ONE only, kneeling, badly bruised on one cheek.
 //              40 years old, 1girl, mature female, …, a beige cardigan over a white blouse, a long skirt."
@@ -206,7 +214,7 @@ PANEL TWO, the RIGHT panel of the middle row, to the RIGHT of PANEL THREE — cl
 - 同一个角色一页出现两次 → 放两个 character 项，各自写 `inside PANEL ONE only`；两个项用了不同变种时，角色表会占两行、名字带变种标
 - 名字用罗马音；台词里叫名字用中文
 - 换装 / 裸体 / 长大或变小 → **建变种**，别新建角色
-- **一次性外貌**（只有这一个镜头特殊：受伤、湿发、临时造型）→ 取消勾选「写进本页角色表」，外貌会拼进这一格，`desc` 里只写姿势和这份特例（「badly bruised on one cheek」）。跟项目角色表完全无关的临时人物（路人、回忆里的人），拉 `native` + `label: "character"` 的框更省事
+- **一次性外貌**（只有这一个镜头特殊：受伤、湿发、临时造型）→ 把「角色信息位置」选成 `当前 Item`，外貌会拼进这一格，`desc` 里只写姿势和这份特例（「badly bruised on one cheek」）。拿不准模型会不会漏看时选 `两者都加`：格子自带一份，角色表也留一行。跟项目角色表完全无关的临时人物（路人、回忆里的人），拉 `native` + `label: "character"` 的框更省事
 
 ---
 
@@ -412,9 +420,12 @@ export const CAMERAS = [
 { key: 'camera', type: 'enum', label: '机位', options: CAMERAS, default: 'medium', canvas: true }
 ```
 
-- `type`：`text` / `longtext` / `number` / `enum` / `bool` / `tags` / `palette` / `characterRef`
-- `enum` 的 `options` 直接是数组，可以引用常量，也可以就地写
-- `default`：新建 item 时的初值，必须出现在 `options` 里
+- `type`：`text` / `longtext` / `number` / `enum` / `bool` / `tags` / `palette`
+- `enum` 的 `options` 可以是数组（引用常量或就地写），也可以是**函数** `(ctx) => 选项数组`。
+  `ctx` = `{ item, page, characters }`：角色下拉（`ref`）和变种下拉（`variant`）就是靠它
+  按当前项目和当前格子动态拼选项的，所以它们只是普通 `enum`，没有专用字段类型
+- `hint`：字段下面那行灰字，字符串或 `(ctx) => 字符串`（返回空串就不显示）
+- `default`：新建 item 时的初值，枚举必须出现在 `options` 里；`bool` 不写 `default` 时按 `true` 算
 - `required`：右栏表单标星
 - `canvas: true`：这一项的值会出现在画布左上角的标签里
 - `advanced: true`：右栏默认收进「高级选项」折叠块，只显示一行摘要；
@@ -429,12 +440,15 @@ export const CAMERAS = [
   label: '面板',          // 按钮与右栏标题
   role: 'panel',         // 算作面板格数（只用来数，不参与编号）
   fields: [ … ],         // 右栏表单按这个生成；note/caption/tags/palette 从 BASE_FIELDS 继承
-  compile({ item, page }) { … },   // 返回 { label, caption, text?, tags?, palette? }，bbox 由核心补
+  compile({ item, page, resolveCharacter }) { … },   // 返回 { label, caption, text?, tags?, palette? }，bbox 由核心补
 }
 ```
 
-`compile` 只拿到 `{ item, page }`；同文件里的辅助函数只有 `textLayoutOf`（竖排/横排）和
-`panelsOf`（数格数）。**编号、定位、九宫格一概不计算**——版式由作者写在 `desc` 里。
+`compile` 拿到 `{ item, page, resolveCharacter }`：
+`resolveCharacter(ref, variant)` 返回**已经合并好基础 + 变种**的角色（`{ name, look, … }`，找不到返回 `null`），
+只有 `character` 那种要把外貌拼进格子的类型才用得上它（「角色信息位置」= `当前 Item`）。
+同文件里的辅助函数只有 `textLayoutOf`（竖排/横排）和 `panelsOf`（数格数）。
+**编号、定位、九宫格一概不计算**——版式由作者写在 `desc` 里。
 
 ### 14.4 句子模板
 
@@ -447,7 +461,8 @@ export const CAMERAS = [
 
 1. **前半段**：填了 `page.summaryCaption` 就整段用它；没填就用自动骨架
    （画风 → 格数 → 文字锁 → `page.scene`；`page.note` 是备注，不进这里）
-2. **后半段**：`<|character_list|>` 角色表，从本页 character 项按 `ref` 去重自动生成。
+2. **后半段**：`<|character_list|>` 角色表，从本页 character 项按 **`ref` + `variant`** 去重自动生成
+   （同一个人同页用了两个变种就占两行，名字各带各的变种标；「角色信息位置」是 `当前 Item` 的格子不进）。
    手写 `summaryCaption` 时**整段覆盖，连角色表也不追加**
 
 ### 14.6 画布标签

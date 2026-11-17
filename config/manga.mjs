@@ -131,6 +131,20 @@ export const STYLES = [
         meta: ['comic', 'multi_panel', 'digital_painting', 'monochrome'],
         phrase: 'High-taste, vertical 2D manga lineart, black ink lines only on white paper, no tone, no colour.',
     },
+    {
+        value: 'real',
+        label: '真实',
+        meta: ['photorealistic', 'real human', 'live action', 'cinematic', 'multi_panel'],
+        phrase:
+            'PHOTOREALISTIC LIVE-ACTION MANGA PAGE. Photographed on a real set with real human actors: natural skin with visible pores and fine hairs, real fabric, real props, practical lighting with soft shadows, shallow depth of field, subtle photographic grain, true-to-life anatomy and hands. Every image inside the panels is a photograph, composited into the manga page layout.',
+    },
+    {
+        value: '3d',
+        label: '3D',
+        meta: ['3d render', 'cgi', 'stylized 3d', 'cinematic', 'multi_panel'],
+        phrase:
+            'STYLIZED 3D RENDERED MANGA PAGE. Rendered in a modern 3D engine: physically based materials, subsurface-scattered skin, soft studio lighting, real depth of field, clean anti-aliased edges, fine surface detail, subtle ambient occlusion, rounded volumetric forms with true depth and thickness. Every image inside the panels is a 3D render, composited into the manga page layout.',
+    },
 ];
 
 /**
@@ -485,10 +499,16 @@ export const TYPES = [
                 required: true,
             },
             {
-                key: 'inCast',
-                type: 'bool',
-                label: '写进本页角色列表（角色格的信息）',
-                default: true,
+                key: 'castAt',
+                type: 'enum',
+                label: '角色信息位置',
+                options: [
+                    { value: 'summary', label: 'Summary' },
+                    { value: 'item', label: '当前 Item' },
+                    { value: 'both', label: '两者都加' },
+                ],
+                default: 'summary',
+                hint: 'Summary：外貌写进本页角色表，几格共用一份。当前 Item：外貌直接拼进这一格的描述，不占角色表。两者都加：两边都写一份。',
             },
             ...BASE_FIELDS,
         ],
@@ -498,10 +518,10 @@ export const TYPES = [
                 .trim()
                 .replace(/[.。]+$/, '');
             if (!item.ref || !body) return null;
-            // inCast=false：不进本页角色表，那就把「基础 + 变种」的外貌直接拼进这一格的 caption，
+            // castAt = item / both：把角色外貌直接拼进这一格的 caption，
             // 让这一格自带人物信息（desc 只管位置和姿势）
             const inline =
-                item.inCast === false && resolveCharacter
+                (item.castAt === 'item' || item.castAt === 'both') && resolveCharacter
                     ? String(
                           resolveCharacter(item.ref, item.variant)?.look || '',
                       ).trim()
@@ -615,8 +635,8 @@ export function buildSummary({ page, items, resolveCharacter }) {
     const seen = new Set();
     for (const item of page.items || []) {
         if (item.type !== 'character' || !item.ref) continue;
-        // inCast=false：这一格外貌自己写，不占本页角色表的一行
-        if (item.inCast === false) continue;
+        // castAt = item：外貌只拼在这一格里，不占本页角色表的一行（both 两边都要）
+        if (item.castAt === 'item') continue;
         const key = `${item.ref}|${item.variant || ''}`;
         if (seen.has(key)) continue;
         seen.add(key);

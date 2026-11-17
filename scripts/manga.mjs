@@ -49,7 +49,7 @@ import { checkUpdate, describeUpdate } from './lib/update.mjs';
 import { compilePage } from '../core/compile.mjs';
 import { diffPage, describeOp } from './lib/diff.mjs';
 import { createItem } from '../core/manga-doc.mjs';
-import { normalizeCharacters, normalizeVariants, variantsOf } from '../core/characters.mjs';
+import { normalizeCharacters, normalizeVariants, variantsOf, cleanCharacterId } from '../core/characters.mjs';
 import { pageOutline, projectOutline, warningsText, table, diffText } from './lib/format.mjs';
 
 const HERE = import.meta.dirname;
@@ -448,14 +448,14 @@ async function cmdCharacter() {
     );
   }
 
-  const id = normalizeCharacters([{ id: flags.id }])[0]?.id || '';
+  const id = cleanCharacterId(flags.id);
 
   // 变种：manga character variant set|remove|list --id <角色> --variant <变种>
   if (action === 'variant') {
     const sub = positional[2] || 'list';
     const char = project.characters.find((item) => item.id === id);
     if (!char) fail(`没有这个角色：${id || '（缺 --id）'}，先用 \`manga character list\` 看有哪些`);
-    const variantId = normalizeVariants([{ id: flags.variant }])[0]?.id || '';
+    const variantId = cleanCharacterId(flags.variant);
 
     if (sub === 'list') {
       const rows = variantsOf(char).map((variant) => [variant.id, variant.name, variant.note || '', variant.look]);
@@ -471,16 +471,17 @@ async function cmdCharacter() {
     if (sub === 'set') {
       const look = String(flags.look || '').trim();
       if (!look) fail('需要 --look：这个变种的差分外貌（英文），会拼在基础外貌后面');
-      const name = String(flags.name || variantId).trim();
-      const note = String(flags.note || '').trim();
-      const existed = variantsOf(char).some((variant) => variant.id === variantId);
+      const previous = variantsOf(char).find((variant) => variant.id === variantId) || null;
+      // 没给 --name / --note 就沿用这个变种原来的，别因为改个外貌把名字和备注打没
+      const name = String(flags.name || previous?.name || variantId).trim();
+      const note = String(flags.note !== undefined ? flags.note : previous?.note || '').trim();
       const list = variantsOf(char).filter((variant) => variant.id !== variantId);
       list.push({ id: variantId, name, look, ...(note ? { note } : {}) });
       char.variants = normalizeVariants(list);
       await saveProject(DIR, project);
       return out(
         { ok: true, character: char.id, variant: { id: variantId, name, look, ...(note ? { note } : {}) } },
-        `已${existed ? '更新' : '添加'}变种 ${name}（${char.id} / ${variantId}）`,
+        `已${previous ? '更新' : '添加'}变种 ${name}（${char.id} / ${variantId}）`,
       );
     }
 
@@ -498,17 +499,21 @@ async function cmdCharacter() {
 
   if (action === 'add' || action === 'set') {
     if (!id) fail('需要 --id，只允许 ASCII（例如 reina）');
-    const name = String(flags.name || id).trim();
+    const existing = project.characters.find((char) => char.id === id);
+    // 只想改外貌时别把名字打回 id：没给 --name 就沿用原来的
+    const name = String(flags.name || existing?.name || id).trim();
     const look = String(flags.look || '').trim();
     const note = String(flags.note || '').trim();
     if (!look) fail('需要 --look：英文外貌描述（发型、五官、服装、体型），不要写汉字名');
 
-    const existing = project.characters.find((char) => char.id === id);
     if (existing) {
       existing.name = name;
       existing.look = look;
-      if (note) existing.note = note;
-      else delete existing.note;
+      // 同理：没传 --note 就别动备注，传了空串才清掉
+      if (flags.note !== undefined) {
+        if (note) existing.note = note;
+        else delete existing.note;
+      }
     } else {
       project.characters.push({ id, name, look, ...(note ? { note } : {}) });
     }

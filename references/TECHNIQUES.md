@@ -337,21 +337,26 @@ In sharp contrast, the girl on the right has NO glasses and spotless skin with z
 
 ### 推荐写法：槽位 + tag 钉死
 
-角色表（`look`）按身体部位分段，**每段一句定性 + 该部位的 tag**，只写看得见的东西：
+角色表按身体部位分段，**每段一句定性 + 该部位的 tag**，只写看得见的东西。
+一个人拆成两段写：**基础 `look` 只放不变量**，**`Clothes` 那一段单独做变种**。
 
 ```text
+基础 look（永远不变，一个人只有一份）
 [age]-year-old woman.
 Hair: long hair, straight hair, silver hair, blunt bangs - centre part, past the waist.
 Eyes: narrow eyes, grey eyes, thin eyebrows.
 Skin: pale skin, mole under eye.
 Body: slim waist, large breasts, long legs.
+
+变种 look（每套衣服／每种状态一个，只写差分）
 Clothes: grey zip hoodie worn open (open hoodie), white ribbed camisole (white camisole),
          short denim shorts with a frayed hem (denim shorts, frayed hem). barefoot.
 ```
 
-- **必写死**：头发长度与刘海（`long hair` / `very long hair` / `bob cut` / `blunt bangs`）、
-  瞳色（`grey eyes`）、体型（`slim waist` / `large breasts` / `long legs`）、
-  每件衣服的单品名与状态（`open hoodie` / `denim shorts` / `frayed hem` / `barefoot`）
+- **必写死（基础）**：头发长度与刘海（`long hair` / `very long hair` / `bob cut` / `blunt bangs`）、
+  瞳色（`grey eyes`）、体型（`slim waist` / `large breasts` / `long legs`）
+- **必写死（变种）**：每件衣服的单品名与状态（`open hoodie` / `denim shorts` / `frayed hem` / `barefoot`）；
+  裸体、制服、睡衣、小时候的衣服各做一个变种
 - **加 1–2 个辨识标记**：痣（`mole under eye`）、`ahoge`、固定发饰、眼镜、耳环、疤痕。
   这是唯一能一眼认出「同一个人」的东西——**脸换个种子就变，痣和发饰不变**
 - **纯 tag 最稳**，代价是体型会往词条的平均值靠（更 pin-up、更像设定图）。
@@ -360,9 +365,9 @@ Clothes: grey zip hoodie worn open (open hoodie), white ribbed camisole (white c
   `she smells like cigarettes`）。它们占权重但不产生像素，还会把写死的细节挤淡。
   想表达性格就放进台词
 
-**`Clothes` 这一行不进基础 `look`，写进变种。** 基础外貌只留 `Hair` / `Eyes` / `Skin` / 体型基准，
-每套衣服（含裸体、制服、睡衣、小时候的衣服）建一个变种，角色框里选。
-这样同一个人只有一份头发和五官，换装不会漂移。
+**为什么衣服一定要下沉到变种**：衣服写进基础 `look`，之后每换一次衣服就得改整个角色（所有页面跟着变），
+或者干脆新建一个角色——同一个人就有两份头发和五官，脸开始漂移。下沉之后，
+基础那份永远只有一个，换装只是换一个变种，角色框里选一下就行。
 
 分格复述：角色格子里的 `desc` 只写位置和姿势（`inside PANEL ONE only, kneeling`），
 外貌不要重复——已经由角色表自动带进 summary 了。
@@ -374,7 +379,7 @@ Clothes: grey zip hoodie worn open (open hoodie), white ribbed camisole (white c
 1. `look` 里固定写 **2–3 个 tag**：长度 + 造型 + 一个癖性（刘海 / 呆毛 / 发饰），之后每页都用**同一串字面**。
    `ponytail` 写成 `side ponytail`、`twin braids` 写成 `braid`，在模型眼里就是换了个人。
 2. 不在 `character.desc` 里重写发型（外貌只写一次）。这一格确实变了（湿发、被风吹乱、扎起来）才写；
-   经常出现的发型变化（马尾/披发）就建一个变种；一次性特例就把角色框的「写进本页角色表」勾掉，外貌会自动拼进这一格。
+   经常出现的发型变化（马尾/披发）就建一个变种；一次性特例就把角色框的「角色信息位置」选成 `当前 Item`（或 `两者都加`），外貌会自动拼进这一格。
 3. 长发容易糊住画面：`hair behind ear`、`hair over shoulder`、`hair pulled back` 能保住脸又不挡动作。
    `hair up` 是**换发型**，不是「把头发撩起来」。
 4. 遮脸 tag（`hair over eyes`、`hair over face`、`bangs pinned back`）只在特写里用，正脸格用了就认不出人。
